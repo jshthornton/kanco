@@ -28,7 +28,7 @@
 
 ```sh
 # Run it — no install, no clone, no docker.
-npx kanco
+npx @jshthornton/kanco
 ```
 
 Then open http://localhost:8787.
@@ -37,16 +37,20 @@ That's it. SQLite + your encrypted GitHub token live in `./kanco-data/`
 (relative to wherever you ran the command), so each project gets its own
 board if you want — or run it from `~` for a single global board.
 
+> Why the `@jshthornton/` prefix? The unscoped `kanco` name is held up by an
+> npm similarity check against unrelated packages. Scoped publishing works
+> the same way — `npx` will install and run the binary called `kanco`.
+
 To pin a version:
 
 ```sh
-npx kanco@0.1.0
+npx @jshthornton/kanco@0.1.0
 ```
 
 To install globally:
 
 ```sh
-npm i -g kanco
+npm i -g @jshthornton/kanco
 kanco
 ```
 
@@ -66,10 +70,10 @@ Examples:
 
 ```sh
 # Pick a different port
-KANCO_PORT=9000 npx kanco
+KANCO_PORT=9000 npx @jshthornton/kanco
 
 # Pin the data dir to your home so every shell sees the same board
-KANCO_DATA_DIR=~/.kanco npx kanco
+KANCO_DATA_DIR=~/.kanco npx @jshthornton/kanco
 ```
 
 ## Wiring up an MCP client
@@ -114,29 +118,50 @@ package that runs natively on Node.
 git clone https://github.com/jshthornton/kanco
 cd kanco
 pnpm install
-pnpm --filter @kanco/web dev      # Vite dev server on :5173 (proxies /api)
-pnpm --filter kanco dev           # backend on :8787 (tsx watch)
-pnpm --filter kanco test          # transitions unit tests
+pnpm --filter @kanco/web dev                # Vite dev server on :5173 (proxies /api)
+pnpm --filter @jshthornton/kanco dev        # backend on :8787 (tsx watch)
+pnpm --filter @jshthornton/kanco test       # transitions unit tests
 pnpm typecheck
 ```
 
 To produce a publishable build locally:
 
 ```sh
-pnpm build           # web → apps/server/public, server → apps/server/dist
-pnpm --filter kanco pack
+pnpm build                                  # web → apps/server/public, server → apps/server/dist
+pnpm --filter @jshthornton/kanco pack
 ```
 
 ## Releasing
 
-Releases are cut by GitHub Actions and pushed to npm.
+Releases are cut by GitHub Actions and pushed to npm with
+[provenance](https://docs.npmjs.com/generating-provenance-statements) using an
+[npm Trusted Publisher](https://docs.npmjs.com/trusted-publishers) — no
+`NPM_TOKEN` secret is stored in the repo.
 
 One-time setup (repo owner only):
 
-```sh
-# Create an npm automation token at https://www.npmjs.com/settings/<you>/tokens
-gh secret set NPM_TOKEN --body "<npm_xxx token>"
-```
+1. Bootstrap the package on npm from a logged-in machine:
+
+   ```sh
+   npm whoami                                          # confirm you're logged in as jshthornton
+   pnpm --filter @jshthornton/kanco run prepublishOnly # build dist + public, copy README/LICENSE
+   cd apps/server
+   npm publish --access public --provenance=false
+   ```
+
+   (Provenance is off for this first publish because it has to come from a
+   workflow — every release after this one will have provenance.)
+
+2. On https://www.npmjs.com/package/@jshthornton/kanco/access, add a **GitHub Actions**
+   trusted publisher:
+
+   - Organization or user: `jshthornton`
+   - Repository: `kanco`
+   - Workflow filename: `publish.yml`
+   - Environment: leave blank
+
+3. From now on, the `Publish to npm` workflow can mint short-lived OIDC tokens
+   to publish — nothing to rotate, nothing to leak.
 
 Cutting a release — two options:
 

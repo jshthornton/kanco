@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "pnpm -r --parallel --filter=./apps/* run dev",
     "build:web": "pnpm --filter @kanco/web run build",
-    "build:server": "pnpm --filter kanco run build",
+    "build:server": "pnpm --filter @jshthornton/kanco run build",
     "build": "pnpm run build:web && pnpm run build:server",
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck"

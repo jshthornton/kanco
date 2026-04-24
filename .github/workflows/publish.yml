@@ -45,8 +45,9 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # Auth is via npm Trusted Publisher (OIDC): no NPM_TOKEN needed.
+      # The package on npmjs.com must be configured with this repo + workflow
+      # as a trusted publisher. Provenance is published alongside the tarball.
       - name: Publish
         working-directory: apps/server
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: pnpm publish --access public --no-git-checks
+        run: pnpm publish --access public --no-git-checks --provenance

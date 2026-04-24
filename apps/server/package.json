@@ -1,5 +1,5 @@
 {
-  "name": "kanco",
+  "name": "@jshthornton/kanco",
   "version": "0.1.0",
   "description": "Local-first kanban board for agents — kanban UI + MCP server in one binary.",
   "license": "MIT",
@@ -22,7 +22,7 @@
   ],
   "type": "module",
   "bin": {
-    "kanco": "./dist/index.js"
+    "kanco": "dist/index.js"
   },
   "files": [
     "dist",
