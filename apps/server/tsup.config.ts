@@ -6,7 +6,8 @@ export default defineConfig({
   target: "node20",
   clean: true,
   outDir: "dist",
-  // Bundle the workspace package into the output so the runtime image doesn't
-  // need to ship the shared source.
+  banner: { js: "#!/usr/bin/env node" },
+  // Bundle the workspace package into the output so the published tarball
+  // doesn't need to ship the shared source.
   noExternal: ["@kanco/shared"],
 });

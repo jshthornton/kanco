@@ -3,7 +3,8 @@ import { getRequestListener } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { createServer } from "node:http";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { openDb } from "./db/client.js";
 import { buildApi } from "./api/routes.js";
 import { makeGqlClient } from "./github/gql.js";
@@ -12,14 +13,20 @@ import { startPoller } from "./workers/pr-poller.js";
 import { makeMcpHandler } from "./mcp/http.js";
 import { recoverOrphanSessions } from "./services/sessions.js";
 
+// dist/index.js sits next to the bundled SPA at ../public when installed via
+// npm. In dev (tsx) src/ has no public dir; this just falls through to the
+// "no SPA" branch below, which is fine.
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const DEFAULT_STATIC_DIR = resolve(SCRIPT_DIR, "..", "public");
+
 const DATA_DIR = process.env.KANCO_DATA_DIR ?? "./kanco-data";
 const PORT = Number(process.env.KANCO_PORT ?? 8787);
-const HOST = process.env.KANCO_HOST ?? "0.0.0.0";
+const HOST = process.env.KANCO_HOST ?? "127.0.0.1";
 // Public Client ID of the shared "kanco-board" GitHub App. Baked in so users
 // don't need to register their own. Override with KANCO_GH_CLIENT_ID for forks.
 const DEFAULT_GH_CLIENT_ID = "Iv23lijl9awJl5CoxL49";
 const GH_CLIENT_ID = process.env.KANCO_GH_CLIENT_ID || DEFAULT_GH_CLIENT_ID;
-const STATIC_DIR = process.env.KANCO_STATIC_DIR ?? "./public";
+const STATIC_DIR = process.env.KANCO_STATIC_DIR ?? DEFAULT_STATIC_DIR;
 
 const db = openDb(join(DATA_DIR, "kanco.db"));
 const secretKey = resolveSecret(DATA_DIR);
