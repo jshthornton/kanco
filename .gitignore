@@ -1,0 +1,25 @@
+node_modules
+dist
+.DS_Store
+*.log
+
+# Local secrets
+.env
+.env*.local
+.env.local
+
+# Local data — sqlite, secret key, session logs, agent worktrees
+kanco-data/
+.kanco/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Build output
+apps/server/public/
+apps/web/dist/

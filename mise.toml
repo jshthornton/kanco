@@ -1,0 +1,40 @@
+[tools]
+node = "20.19.6"
+pnpm = "10.33.0"
+
+[env]
+KANCO_DATA_DIR = "{{config_root}}/kanco-data"
+KANCO_STATIC_DIR = "{{config_root}}/apps/server/public"
+
+[tasks.dev]
+description = "Run web + server in watch mode"
+run = "pnpm -r --parallel --filter=./apps/* run dev"
+
+[tasks.build]
+description = "Build all workspaces"
+run = "pnpm -r run build"
+
+[tasks.test]
+description = "Run all tests"
+run = "pnpm -r run test"
+
+[tasks.typecheck]
+description = "Typecheck all workspaces"
+run = "pnpm -r run typecheck"
+
+[tasks."web:build"]
+description = "Build the web app only"
+run = "pnpm --filter @kanco/web build"
+
+[tasks.server]
+description = "Run the built server"
+depends = ["build"]
+run = "node apps/server/dist/index.js"
+
+[tasks."server:fresh"]
+description = "Kill anything on :8787 and run a fresh server"
+depends = ["build"]
+run = [
+  "lsof -i :8787 -t | xargs -r kill -9 || true",
+  "node apps/server/dist/index.js",
+]
