@@ -22,6 +22,12 @@ interface BoardSearch {
   ticket?: string;
 }
 
+interface TicketGroup {
+  ticket: Ticket;
+  parentRef: Ticket | null;
+  children: Ticket[];
+}
+
 export const Route = createFileRoute("/spaces/$spaceId")({
   component: BoardPage,
   validateSearch: (raw: Record<string, unknown>): BoardSearch => ({
@@ -87,6 +93,12 @@ function BoardPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
+  const ticketsById = useMemo(() => {
+    const map = new Map<string, Ticket>();
+    for (const t of board?.tickets ?? []) map.set(t.id, t);
+    return map;
+  }, [board]);
+
   const ticketsByColumn = useMemo(() => {
     const map = new Map<string, Ticket[]>();
     for (const c of board?.columns ?? []) map.set(c.id, []);
@@ -97,6 +109,40 @@ function BoardPage() {
     for (const arr of map.values()) arr.sort((a, b) => a.position - b.position);
     return map;
   }, [board]);
+
+  const columnGroups = useMemo(() => {
+    const map = new Map<string, TicketGroup[]>();
+    const childrenByParent = new Map<string, Ticket[]>();
+    for (const t of board?.tickets ?? []) {
+      if (t.parent_ticket_id) {
+        const arr = childrenByParent.get(t.parent_ticket_id) ?? [];
+        arr.push(t);
+        childrenByParent.set(t.parent_ticket_id, arr);
+      }
+    }
+    for (const arr of childrenByParent.values()) arr.sort((a, b) => a.position - b.position);
+
+    for (const col of board?.columns ?? []) {
+      const colTickets = ticketsByColumn.get(col.id) ?? [];
+      const used = new Set<string>();
+      const groups: TicketGroup[] = [];
+      for (const t of colTickets) {
+        if (used.has(t.id)) continue;
+        const parent = t.parent_ticket_id ? ticketsById.get(t.parent_ticket_id) ?? null : null;
+        if (parent && parent.column_id === col.id) continue; // rendered under its parent
+        const children = (childrenByParent.get(t.id) ?? []).filter((c) => c.column_id === col.id);
+        groups.push({
+          ticket: t,
+          parentRef: parent && parent.column_id !== col.id ? parent : null,
+          children,
+        });
+        used.add(t.id);
+        for (const c of children) used.add(c.id);
+      }
+      map.set(col.id, groups);
+    }
+    return map;
+  }, [board, ticketsByColumn, ticketsById]);
 
   const linksByTicket = useMemo(() => {
     const map = new Map<string, TicketPrLink[]>();
@@ -167,6 +213,7 @@ function BoardPage() {
               key={col.id}
               column={col}
               tickets={ticketsByColumn.get(col.id) ?? []}
+              groups={columnGroups.get(col.id) ?? []}
               linksByTicket={linksByTicket}
               spaceId={spaceId}
               onOpen={openTicket}
@@ -240,6 +287,7 @@ const COLUMN_COLORS: Record<string, string> = {
 function BoardColumn(props: {
   column: Column;
   tickets: Ticket[];
+  groups: TicketGroup[];
   linksByTicket: Map<string, TicketPrLink[]>;
   spaceId: string;
   onOpen: (id: string) => void;
@@ -272,13 +320,28 @@ function BoardColumn(props: {
       </div>
       <div ref={setNodeRef} className={`column-body${isOver ? " drop-over" : ""}`}>
         <SortableContext items={props.tickets.map((t) => t.id)} strategy={verticalListSortingStrategy}>
-          {props.tickets.map((t) => (
-            <SortableTicket
-              key={t.id}
-              ticket={t}
-              links={props.linksByTicket.get(t.id) ?? []}
-              onOpen={props.onOpen}
-            />
+          {props.groups.map((g) => (
+            <div key={g.ticket.id} className="ticket-group">
+              <SortableTicket
+                ticket={g.ticket}
+                links={props.linksByTicket.get(g.ticket.id) ?? []}
+                onOpen={props.onOpen}
+                parentRef={g.parentRef}
+              />
+              {g.children.length > 0 && (
+                <div className="subtask-list">
+                  {g.children.map((c) => (
+                    <SortableTicket
+                      key={c.id}
+                      ticket={c}
+                      links={props.linksByTicket.get(c.id) ?? []}
+                      onOpen={props.onOpen}
+                      isSubtask
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           ))}
         </SortableContext>
         {adding ? (
@@ -321,10 +384,14 @@ function SortableTicket({
   ticket,
   links,
   onOpen,
+  parentRef,
+  isSubtask,
 }: {
   ticket: Ticket;
   links: TicketPrLink[];
   onOpen: (id: string) => void;
+  parentRef?: Ticket | null;
+  isSubtask?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: ticket.id,
@@ -337,9 +404,9 @@ function SortableTicket({
       {...attributes}
       {...listeners}
       onClick={() => onOpen(ticket.id)}
-      className={`card${isDragging ? " dragging" : ""}`}
+      className={`card${isDragging ? " dragging" : ""}${isSubtask ? " subtask" : ""}`}
     >
-      <TicketCardBody ticket={ticket} links={links} />
+      <TicketCardBody ticket={ticket} links={links} parentRef={parentRef} onOpen={onOpen} />
     </div>
   );
 }
@@ -360,9 +427,34 @@ function TicketCard({
   );
 }
 
-function TicketCardBody({ ticket, links }: { ticket: Ticket; links: TicketPrLink[] }) {
+function TicketCardBody({
+  ticket,
+  links,
+  parentRef,
+  onOpen,
+}: {
+  ticket: Ticket;
+  links: TicketPrLink[];
+  parentRef?: Ticket | null;
+  onOpen?: (id: string) => void;
+}) {
   return (
     <>
+      {parentRef && (
+        <button
+          type="button"
+          className="parent-ref"
+          title={parentRef.title}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen?.(parentRef.id);
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <span className="parent-ref-id">{parentRef.id.slice(0, 6)}</span>
+          <span className="parent-ref-title">{parentRef.title}</span>
+        </button>
+      )}
       <div className="card-title">{ticket.title}</div>
       <div className="card-meta">
         <span className="pill card-id" title={ticket.id}>

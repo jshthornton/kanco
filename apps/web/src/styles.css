@@ -262,6 +262,61 @@ textarea:focus {
   color: var(--muted);
 }
 
+.ticket-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.subtask-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: 14px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+}
+.card.subtask {
+  background: var(--panel);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.card.subtask .card-title {
+  font-weight: 400;
+}
+
+.parent-ref {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 5px 5px 0 0;
+  padding: 6px 10px;
+  margin: -10px -12px 10px -12px;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  width: calc(100% + 24px);
+  text-align: left;
+}
+.parent-ref:hover {
+  color: var(--accent-strong);
+  background: var(--panel-2);
+}
+.parent-ref-id {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+.parent-ref-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 .add-card {
   font-size: 12px;
   color: var(--muted);
