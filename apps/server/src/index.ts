@@ -10,7 +10,7 @@ import { makeGqlClient } from "./github/gql.js";
 import { resolveSecret } from "./github/crypto.js";
 import { startPoller } from "./workers/pr-poller.js";
 import { makeMcpHandler } from "./mcp/http.js";
-import { recoverOrphanSessions } from "./services/sessions.js";
+import { recoverOrphanSessions, startOrphanReaper } from "./services/sessions.js";
 
 const DATA_DIR = process.env.KANCO_DATA_DIR ?? "./kanco-data";
 const PORT = Number(process.env.KANCO_PORT ?? 8787);
@@ -25,6 +25,7 @@ const db = openDb(join(DATA_DIR, "kanco.db"));
 const secretKey = resolveSecret(DATA_DIR);
 const gql = makeGqlClient(db, secretKey, GH_CLIENT_ID);
 recoverOrphanSessions(db);
+const stopOrphanReaper = startOrphanReaper(db);
 
 const app = new Hono();
 app.route("/api", buildApi({ db, gql, secretKey, ghClientId: GH_CLIENT_ID }));
@@ -77,6 +78,7 @@ function shutdown() {
   shuttingDown = true;
   console.log("[kanco] shutting down");
   stopPoller();
+  stopOrphanReaper();
   server.close(() => process.exit(0));
   // SSE streams (/api/events) keep sockets open indefinitely — drop them so
   // close() can resolve. Available in Node 18.2+.

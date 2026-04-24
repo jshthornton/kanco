@@ -317,17 +317,38 @@ function pidAlive(pid: number): boolean {
   }
 }
 
-/** Mark any "running" session whose pid is no longer alive as errored. */
+/**
+ * Mark any "running"/"starting" session whose pid is gone as exited. Runs at
+ * boot to catch sessions whose parent server died mid-run, and on a timer to
+ * catch the same case during a hot-reload of `tsx watch` (the new server has
+ * no handle to the prior child, so its on-exit listener never fires).
+ */
 export function recoverOrphanSessions(db: DB): void {
   const rows = db
-    .prepare(`SELECT id, pid FROM agent_sessions WHERE status IN ('running', 'starting')`)
-    .all() as { id: string; pid: number | null }[];
+    .prepare(
+      `SELECT id, pid, space_id, ticket_id FROM agent_sessions
+       WHERE status IN ('running', 'starting')`,
+    )
+    .all() as { id: string; pid: number | null; space_id: string; ticket_id: string }[];
   const now = Date.now();
   for (const r of rows) {
-    if (r.pid == null || !pidAlive(r.pid)) {
-      db.prepare(
-        `UPDATE agent_sessions SET status = 'error', ended_at = ? WHERE id = ?`,
-      ).run(now, r.id);
-    }
+    if (r.pid != null && pidAlive(r.pid)) continue;
+    db.prepare(
+      `UPDATE agent_sessions SET status = 'exited', ended_at = ? WHERE id = ?`,
+    ).run(now, r.id);
+    emitChange({ kind: "session.ended", space_id: r.space_id, ticket_id: r.ticket_id });
   }
+}
+
+/** Start a background interval that sweeps orphans every `intervalMs`. */
+export function startOrphanReaper(db: DB, intervalMs = 5_000): () => void {
+  const handle = setInterval(() => {
+    try {
+      recoverOrphanSessions(db);
+    } catch (err) {
+      console.error("[sessions] orphan reaper error:", err);
+    }
+  }, intervalMs);
+  handle.unref();
+  return () => clearInterval(handle);
 }
