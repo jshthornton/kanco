@@ -9,11 +9,12 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import type { Column, Space, Ticket, TicketPrLink, TicketSessionSummary } from "@kanco/shared";
 import { TicketDrawer } from "../components/TicketDrawer";
@@ -93,6 +94,10 @@ function BoardPage() {
   });
 
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<{
+    columnId: string;
+    beforeTicketId: string | null;
+  } | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   const ticketsById = useMemo(() => {
@@ -162,33 +167,53 @@ function BoardPage() {
     return map;
   }, [board]);
 
+  const computeDropTarget = useCallback(
+    (e: DragOverEvent | DragEndEvent): { columnId: string; beforeTicketId: string | null } | null => {
+      if (!e.over) return null;
+      const overId = String(e.over.id);
+      const activeId = String(e.active.id);
+      if (board?.columns.some((c) => c.id === overId)) {
+        return { columnId: overId, beforeTicketId: null };
+      }
+      const overTicket = board?.tickets.find((t) => t.id === overId);
+      if (!overTicket) return null;
+      const columnId = overTicket.column_id;
+      const arr = (ticketsByColumn.get(columnId) ?? []).filter((t) => t.id !== activeId);
+      const overIdx = arr.findIndex((t) => t.id === overId);
+      const activeRect = e.active.rect.current.translated;
+      const overRect = e.over.rect;
+      let after = false;
+      if (activeRect && overRect) {
+        const activeCenter = activeRect.top + activeRect.height / 2;
+        const overCenter = overRect.top + overRect.height / 2;
+        after = activeCenter > overCenter;
+      }
+      if (after) {
+        const next = arr[overIdx + 1];
+        return { columnId, beforeTicketId: next ? next.id : null };
+      }
+      return { columnId, beforeTicketId: overId };
+    },
+    [board, ticketsByColumn],
+  );
+
   const handleDragStart = (e: DragStartEvent) => setActiveId(String(e.active.id));
+  const handleDragOver = (e: DragOverEvent) => setDropIndicator(computeDropTarget(e));
   const handleDragEnd = (e: DragEndEvent) => {
     setActiveId(null);
-    if (!e.over) return;
+    setDropIndicator(null);
+    const target = computeDropTarget(e);
+    if (!target) return;
     const activeTicket = board?.tickets.find((t) => t.id === e.active.id);
     if (!activeTicket) return;
 
-    const overId = String(e.over.id);
-    let targetColumnId: string | undefined;
-    let targetIndex: number;
-
-    if (board?.columns.some((c) => c.id === overId)) {
-      targetColumnId = overId;
-      targetIndex = (ticketsByColumn.get(overId) ?? []).length;
-    } else {
-      const overTicket = board?.tickets.find((t) => t.id === overId);
-      if (!overTicket) return;
-      targetColumnId = overTicket.column_id;
-      const arr = ticketsByColumn.get(targetColumnId) ?? [];
-      targetIndex = arr.findIndex((t) => t.id === overId);
-      if (targetIndex < 0) targetIndex = arr.length;
-    }
-    if (!targetColumnId) return;
-
-    const destArr = (ticketsByColumn.get(targetColumnId) ?? []).filter((t) => t.id !== activeTicket.id);
-    const before = destArr[targetIndex - 1];
-    const after = destArr[targetIndex];
+    const destArr = (ticketsByColumn.get(target.columnId) ?? []).filter((t) => t.id !== activeTicket.id);
+    const targetIndex = target.beforeTicketId
+      ? destArr.findIndex((t) => t.id === target.beforeTicketId)
+      : destArr.length;
+    const idx = targetIndex < 0 ? destArr.length : targetIndex;
+    const before = destArr[idx - 1];
+    const after = destArr[idx];
     const newPos =
       before && after
         ? (before.position + after.position) / 2
@@ -197,7 +222,7 @@ function BoardPage() {
           : after
             ? after.position - 1
             : 1;
-    move.mutate({ id: activeTicket.id, column_id: targetColumnId, position: newPos });
+    move.mutate({ id: activeTicket.id, column_id: target.columnId, position: newPos });
   };
 
   const activeTicket = activeId ? board?.tickets.find((t) => t.id === activeId) ?? null : null;
@@ -212,8 +237,12 @@ function BoardPage() {
         sensors={sensors}
         collisionDetection={closestCorners}
         onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
-        onDragCancel={() => setActiveId(null)}
+        onDragCancel={() => {
+          setActiveId(null);
+          setDropIndicator(null);
+        }}
       >
         <div className="board">
           {(board?.columns ?? []).map((col) => (
@@ -226,6 +255,9 @@ function BoardPage() {
               sessionsByTicket={sessionsByTicket}
               spaceId={spaceId}
               onOpen={openTicket}
+              dropIndicator={
+                dropIndicator && dropIndicator.columnId === col.id ? dropIndicator : null
+              }
             />
           ))}
         </div>
@@ -308,6 +340,7 @@ function BoardColumn(props: {
   sessionsByTicket: Map<string, TicketSessionSummary>;
   spaceId: string;
   onOpen: (id: string) => void;
+  dropIndicator: { columnId: string; beforeTicketId: string | null } | null;
 }) {
   const qc = useQueryClient();
   const { setNodeRef, isOver } = useDroppable({ id: props.column.id });
@@ -339,6 +372,9 @@ function BoardColumn(props: {
         <SortableContext items={props.tickets.map((t) => t.id)} strategy={verticalListSortingStrategy}>
           {props.groups.map((g) => (
             <div key={g.ticket.id} className="ticket-group">
+              {props.dropIndicator?.beforeTicketId === g.ticket.id && (
+                <div className="drop-indicator" aria-hidden />
+              )}
               <SortableTicket
                 ticket={g.ticket}
                 links={props.linksByTicket.get(g.ticket.id) ?? []}
@@ -349,19 +385,26 @@ function BoardColumn(props: {
               {g.children.length > 0 && (
                 <div className="subtask-list">
                   {g.children.map((c) => (
-                    <SortableTicket
-                      key={c.id}
-                      ticket={c}
-                      links={props.linksByTicket.get(c.id) ?? []}
-                      sessions={props.sessionsByTicket.get(c.id) ?? null}
-                      onOpen={props.onOpen}
-                      isSubtask
-                    />
+                    <Fragment key={c.id}>
+                      {props.dropIndicator?.beforeTicketId === c.id && (
+                        <div className="drop-indicator" aria-hidden />
+                      )}
+                      <SortableTicket
+                        ticket={c}
+                        links={props.linksByTicket.get(c.id) ?? []}
+                        sessions={props.sessionsByTicket.get(c.id) ?? null}
+                        onOpen={props.onOpen}
+                        isSubtask
+                      />
+                    </Fragment>
                   ))}
                 </div>
               )}
             </div>
           ))}
+          {props.dropIndicator && props.dropIndicator.beforeTicketId === null && (
+            <div className="drop-indicator" aria-hidden />
+          )}
         </SortableContext>
         {adding ? (
           <form
