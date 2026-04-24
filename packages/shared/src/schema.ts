@@ -50,6 +50,14 @@ export const AgentSession = z.object({
 });
 export type AgentSession = z.infer<typeof AgentSession>;
 
+export const TicketSessionSummary = z.object({
+  ticket_id: z.string(),
+  running: z.number().int().nonnegative(),
+  finished: z.number().int().nonnegative(),
+  errored: z.number().int().nonnegative(),
+});
+export type TicketSessionSummary = z.infer<typeof TicketSessionSummary>;
+
 export const Column = z.object({
   id: z.string(),
   space_id: z.string(),

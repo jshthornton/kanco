@@ -261,6 +261,36 @@ textarea:focus {
 .pill.pr-draft {
   color: var(--muted);
 }
+.pill.session-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.pill.session-running {
+  color: #8ad0ff;
+  border-color: #8ad0ff44;
+}
+.pill.session-running .session-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8ad0ff;
+  box-shadow: 0 0 6px #8ad0ffaa;
+  animation: session-pulse 1.4s ease-in-out infinite;
+}
+.pill.session-finished {
+  color: #8affb4;
+  border-color: #8affb444;
+}
+.pill.session-errored {
+  color: var(--danger);
+  border-color: #ff6d7b44;
+}
+@keyframes session-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
 
 .ticket-group {
   display: flex;

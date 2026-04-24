@@ -21,6 +21,7 @@ import {
 } from "../services/spaces.js";
 import {
   getSession,
+  listSpaceSessionSummary,
   listTicketSessions,
   startSession,
   tailSessionLog,
@@ -113,6 +114,7 @@ export function buildApi(deps: ApiDeps): Hono {
       tickets: listTickets(deps.db, space_id),
       links: listSpacePrLinks(deps.db, space_id),
       columns: listBoardColumns(deps.db, space_id),
+      session_summary: listSpaceSessionSummary(deps.db, space_id),
     });
   });
 

@@ -1,4 +1,12 @@
-import type { AgentKind, AgentSession, Column, Space, Ticket, TicketPrLink } from "@kanco/shared";
+import type {
+  AgentKind,
+  AgentSession,
+  Column,
+  Space,
+  Ticket,
+  TicketPrLink,
+  TicketSessionSummary,
+} from "@kanco/shared";
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -24,9 +32,12 @@ export const api = {
     http<Space>(`/api/spaces/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   getSpace: (id: string) => http<Space>(`/api/spaces/${id}`),
   listBoard: (spaceId: string) =>
-    http<{ tickets: Ticket[]; links: TicketPrLink[]; columns: Column[] }>(
-      `/api/spaces/${spaceId}/tickets`,
-    ),
+    http<{
+      tickets: Ticket[];
+      links: TicketPrLink[];
+      columns: Column[];
+      session_summary: TicketSessionSummary[];
+    }>(`/api/spaces/${spaceId}/tickets`),
   createTicket: (input: {
     space_id: string;
     title: string;

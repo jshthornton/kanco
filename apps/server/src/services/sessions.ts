@@ -56,7 +56,15 @@ function rowToSession(r: SessionRow): AgentSession {
 }
 
 export function buildPrompt(ticket: Ticket, parent: Ticket | null): string {
-  const parts = [`# Ticket: ${ticket.title}`];
+  const parts: string[] = [
+    "You are working on the ticket below in this repository. Implement it end-to-end:",
+    "explore the codebase as needed, make the necessary code changes, run the project's",
+    "type-checks and tests, and iterate until the work is complete. Commit your changes",
+    "on the current branch when you are done. Do not stop after only gathering context —",
+    "carry the task through to completion.",
+    "",
+    `# Ticket: ${ticket.title}`,
+  ];
   if (ticket.body) parts.push(ticket.body);
   if (parent) {
     parts.push("");
@@ -238,6 +246,39 @@ function getSessionRow(db: DB, id: string): SessionRow | null {
 export function getSession(db: DB, id: string): AgentSession | null {
   const r = getSessionRow(db, id);
   return r ? rowToSession(r) : null;
+}
+
+export interface TicketSessionSummaryRow {
+  ticket_id: string;
+  running: number;
+  finished: number;
+  errored: number;
+}
+
+export function listSpaceSessionSummary(db: DB, space_id: string): TicketSessionSummaryRow[] {
+  const rows = db
+    .prepare(
+      `SELECT
+         ticket_id,
+         SUM(CASE WHEN status IN ('running', 'starting') THEN 1 ELSE 0 END) AS running,
+         SUM(CASE WHEN status = 'exited' THEN 1 ELSE 0 END) AS finished,
+         SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS errored
+       FROM agent_sessions
+       WHERE space_id = ?
+       GROUP BY ticket_id`,
+    )
+    .all(space_id) as Array<{
+    ticket_id: string;
+    running: number | null;
+    finished: number | null;
+    errored: number | null;
+  }>;
+  return rows.map((r) => ({
+    ticket_id: r.ticket_id,
+    running: r.running ?? 0,
+    finished: r.finished ?? 0,
+    errored: r.errored ?? 0,
+  }));
 }
 
 export function listTicketSessions(db: DB, ticket_id: string): AgentSession[] {

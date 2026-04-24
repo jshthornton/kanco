@@ -15,7 +15,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-
 import { CSS } from "@dnd-kit/utilities";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import type { Column, Space, Ticket, TicketPrLink } from "@kanco/shared";
+import type { Column, Space, Ticket, TicketPrLink, TicketSessionSummary } from "@kanco/shared";
 import { TicketDrawer } from "../components/TicketDrawer";
 
 interface BoardSearch {
@@ -70,10 +70,12 @@ function BoardPage() {
       api.moveTicket(id, column_id, position, true),
     onMutate: async (vars) => {
       await qc.cancelQueries({ queryKey: ["board", spaceId] });
-      const prev = qc.getQueryData<{ tickets: Ticket[]; columns: Column[]; links: TicketPrLink[] }>([
-        "board",
-        spaceId,
-      ]);
+      const prev = qc.getQueryData<{
+        tickets: Ticket[];
+        columns: Column[];
+        links: TicketPrLink[];
+        session_summary: TicketSessionSummary[];
+      }>(["board", spaceId]);
       if (prev) {
         qc.setQueryData(["board", spaceId], {
           ...prev,
@@ -143,6 +145,12 @@ function BoardPage() {
     }
     return map;
   }, [board, ticketsByColumn, ticketsById]);
+
+  const sessionsByTicket = useMemo(() => {
+    const map = new Map<string, TicketSessionSummary>();
+    for (const s of board?.session_summary ?? []) map.set(s.ticket_id, s);
+    return map;
+  }, [board]);
 
   const linksByTicket = useMemo(() => {
     const map = new Map<string, TicketPrLink[]>();
@@ -215,13 +223,21 @@ function BoardPage() {
               tickets={ticketsByColumn.get(col.id) ?? []}
               groups={columnGroups.get(col.id) ?? []}
               linksByTicket={linksByTicket}
+              sessionsByTicket={sessionsByTicket}
               spaceId={spaceId}
               onOpen={openTicket}
             />
           ))}
         </div>
         <DragOverlay>
-          {activeTicket ? <TicketCard ticket={activeTicket} links={linksByTicket.get(activeTicket.id) ?? []} dragging /> : null}
+          {activeTicket ? (
+            <TicketCard
+              ticket={activeTicket}
+              links={linksByTicket.get(activeTicket.id) ?? []}
+              sessions={sessionsByTicket.get(activeTicket.id) ?? null}
+              dragging
+            />
+          ) : null}
         </DragOverlay>
       </DndContext>
       <TicketDrawer
@@ -289,6 +305,7 @@ function BoardColumn(props: {
   tickets: Ticket[];
   groups: TicketGroup[];
   linksByTicket: Map<string, TicketPrLink[]>;
+  sessionsByTicket: Map<string, TicketSessionSummary>;
   spaceId: string;
   onOpen: (id: string) => void;
 }) {
@@ -325,6 +342,7 @@ function BoardColumn(props: {
               <SortableTicket
                 ticket={g.ticket}
                 links={props.linksByTicket.get(g.ticket.id) ?? []}
+                sessions={props.sessionsByTicket.get(g.ticket.id) ?? null}
                 onOpen={props.onOpen}
                 parentRef={g.parentRef}
               />
@@ -335,6 +353,7 @@ function BoardColumn(props: {
                       key={c.id}
                       ticket={c}
                       links={props.linksByTicket.get(c.id) ?? []}
+                      sessions={props.sessionsByTicket.get(c.id) ?? null}
                       onOpen={props.onOpen}
                       isSubtask
                     />
@@ -383,12 +402,14 @@ function BoardColumn(props: {
 function SortableTicket({
   ticket,
   links,
+  sessions,
   onOpen,
   parentRef,
   isSubtask,
 }: {
   ticket: Ticket;
   links: TicketPrLink[];
+  sessions: TicketSessionSummary | null;
   onOpen: (id: string) => void;
   parentRef?: Ticket | null;
   isSubtask?: boolean;
@@ -406,7 +427,13 @@ function SortableTicket({
       onClick={() => onOpen(ticket.id)}
       className={`card${isDragging ? " dragging" : ""}${isSubtask ? " subtask" : ""}`}
     >
-      <TicketCardBody ticket={ticket} links={links} parentRef={parentRef} onOpen={onOpen} />
+      <TicketCardBody
+        ticket={ticket}
+        links={links}
+        sessions={sessions}
+        parentRef={parentRef}
+        onOpen={onOpen}
+      />
     </div>
   );
 }
@@ -414,27 +441,63 @@ function SortableTicket({
 function TicketCard({
   ticket,
   links,
+  sessions,
   dragging,
 }: {
   ticket: Ticket;
   links: TicketPrLink[];
+  sessions: TicketSessionSummary | null;
   dragging?: boolean;
 }) {
   return (
     <div className={`card${dragging ? " dragging" : ""}`}>
-      <TicketCardBody ticket={ticket} links={links} />
+      <TicketCardBody ticket={ticket} links={links} sessions={sessions} />
     </div>
+  );
+}
+
+function SessionPills({ s }: { s: TicketSessionSummary }) {
+  if (!s.running && !s.finished && !s.errored) return null;
+  return (
+    <>
+      {s.running > 0 && (
+        <span
+          className="pill session-pill session-running"
+          title={`${s.running} running session${s.running === 1 ? "" : "s"}`}
+        >
+          <span className="session-dot" /> {s.running}
+        </span>
+      )}
+      {s.finished > 0 && (
+        <span
+          className="pill session-pill session-finished"
+          title={`${s.finished} finished session${s.finished === 1 ? "" : "s"}`}
+        >
+          ✓ {s.finished}
+        </span>
+      )}
+      {s.errored > 0 && (
+        <span
+          className="pill session-pill session-errored"
+          title={`${s.errored} errored session${s.errored === 1 ? "" : "s"}`}
+        >
+          ! {s.errored}
+        </span>
+      )}
+    </>
   );
 }
 
 function TicketCardBody({
   ticket,
   links,
+  sessions,
   parentRef,
   onOpen,
 }: {
   ticket: Ticket;
   links: TicketPrLink[];
+  sessions: TicketSessionSummary | null;
   parentRef?: Ticket | null;
   onOpen?: (id: string) => void;
 }) {
@@ -466,6 +529,7 @@ function TicketCardBody({
             #{l.number} {l.state}
           </span>
         ))}
+        {sessions && <SessionPills s={sessions} />}
       </div>
     </>
   );
