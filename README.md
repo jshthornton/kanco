@@ -133,53 +133,67 @@ pnpm --filter @jshthornton/kanco pack
 
 ## Releasing
 
-Releases are cut by GitHub Actions and pushed to npm with
-[provenance](https://docs.npmjs.com/generating-provenance-statements) using an
-[npm Trusted Publisher](https://docs.npmjs.com/trusted-publishers) — no
-`NPM_TOKEN` secret is stored in the repo.
+Releases are fully automated from [Conventional Commits][cc]. There is no
+manual `npm version` / tag dance — write commits in the right format, merge
+to main, and a release PR appears.
 
-One-time setup (repo owner only):
+[cc]: https://www.conventionalcommits.org/
 
-1. Bootstrap the package on npm from a logged-in machine:
+### How it works
+
+1. You merge a PR to main with conventional commits like `feat: …` or `fix: …`.
+2. [release-please][rp] reads commits since the last tag and opens (or
+   updates) a PR titled `chore(release): vX.Y.Z` containing the version bump
+   in `apps/server/package.json` and a generated `CHANGELOG.md` entry.
+3. When you're ready to ship, you merge that PR. release-please tags the
+   merge commit (`vX.Y.Z`) and creates a GitHub Release.
+4. The `publish` job in the same workflow run pushes the tarball to npm with
+   [provenance](https://docs.npmjs.com/generating-provenance-statements) via
+   an [npm Trusted Publisher][tp] — no `NPM_TOKEN` secret in the repo.
+
+[rp]: https://github.com/googleapis/release-please
+[tp]: https://docs.npmjs.com/trusted-publishers
+
+### Commit message format
+
+Use [Conventional Commits][cc]. Common prefixes:
+
+| Prefix      | Bump  | Example                                                |
+| ----------- | ----- | ------------------------------------------------------ |
+| `feat:`     | minor | `feat: add column rename`                              |
+| `fix:`      | patch | `fix: handle MCP timeout gracefully`                   |
+| `perf:`     | patch | `perf: cache PR poller results`                        |
+| `feat!:`    | major | `feat!: drop Node 18 support`                          |
+| `docs:`     | none  | `docs: clarify env var defaults`                       |
+| `chore:`    | none  | `chore: bump deps`                                     |
+| `refactor:` | none  | `refactor: extract transitions module`                 |
+| `ci:`       | none  | `ci: bump setup-node to v5`                            |
+
+For breaking changes either suffix the type with `!` or include a
+`BREAKING CHANGE:` footer. PR titles follow the same format if you squash-merge.
+
+### One-time setup (already done for this repo)
+
+For posterity:
+
+1. Bootstrap publish from a logged-in machine (this only happens once, before
+   trusted publishing exists for the package):
 
    ```sh
-   npm whoami                                          # confirm you're logged in as jshthornton
-   pnpm --filter @jshthornton/kanco run prepublishOnly # build dist + public, copy README/LICENSE
+   pnpm --filter @jshthornton/kanco run prepublishOnly
    cd apps/server
    npm publish --access public --provenance=false
    ```
 
-   (Provenance is off for this first publish because it has to come from a
-   workflow — every release after this one will have provenance.)
-
-2. On https://www.npmjs.com/package/@jshthornton/kanco/access, add a **GitHub Actions**
-   trusted publisher:
+2. On `https://www.npmjs.com/package/@jshthornton/kanco/access`, add a
+   GitHub Actions trusted publisher:
 
    - Organization or user: `jshthornton`
    - Repository: `kanco`
-   - Workflow filename: `publish.yml`
+   - Workflow filename: `release.yml`
    - Environment: leave blank
 
-3. From now on, the `Publish to npm` workflow can mint short-lived OIDC tokens
-   to publish — nothing to rotate, nothing to leak.
-
-Cutting a release — two options:
-
-1. **Tag locally**
-
-   ```sh
-   cd apps/server
-   npm version patch       # or minor / major
-   git push --follow-tags
-   ```
-
-   The `Publish to npm` workflow runs on the `v*` tag and publishes.
-
-2. **Workflow dispatch**
-
-   `Actions → Publish to npm → Run workflow`, supply a version like `0.2.0`.
-   The workflow bumps `apps/server/package.json`, commits, tags, pushes, and
-   publishes.
+After that, every release goes through the workflow with OIDC + provenance.
 
 ## Hosting your own GitHub App (optional)
 

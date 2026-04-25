@@ -1,0 +1,65 @@
+name: Release
+
+# Drives the conventional-commit-based release flow:
+#
+#   1. Every push to main, release-please scans commit messages since the last
+#      tag. If any are releasable (feat/fix/perf/!), it opens or updates a
+#      "chore(release): vX.Y.Z" PR with the version bump and CHANGELOG.
+#   2. Merging that PR triggers this workflow again. release-please then tags
+#      the merge commit and creates a GitHub Release. The publish job runs in
+#      the SAME workflow run (so we sidestep the GITHUB_TOKEN-can't-trigger-
+#      nested-workflows rule) and pushes the tarball to npm via OIDC trusted
+#      publishing.
+#
+# To cut a release: write conventional commits, merge the release PR. Done.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: .release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+
+      - run: pnpm install --frozen-lockfile=false
+      - run: pnpm build
+
+      # Trusted Publisher (OIDC) auth requires npm >=11.5; Node 20 ships 10.x.
+      - name: Upgrade npm for OIDC support
+        run: npm install -g npm@latest
+
+      - name: Publish to npm
+        working-directory: apps/server
+        run: npm publish --access public --provenance
