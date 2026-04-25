@@ -112,6 +112,28 @@ Tools exposed:
 | `link_pr`        | Link a PR URL; state drives column |
 | `unlink_pr`      | Remove a PR link |
 
+## Agent skill
+
+A publishable Claude Agent skill in [`skills/kanco`](skills/kanco) teaches
+LLMs the kanco workflow: create a Todo ticket on task accept, move through
+Planning → In Progress, link the PR when opened, and let kanco auto-drive
+In Review / Done from GitHub PR state. Use subtasks for parallel streams of
+work.
+
+Install with the [`skills`](https://www.npmjs.com/package/skills) CLI — no
+clone needed:
+
+```sh
+npx skills add jshthornton/kanco --skill kanco
+```
+
+Or just ask your agent: *"Install the kanco skill from
+github.com/jshthornton/kanco."* Manual fallback:
+
+```sh
+mkdir -p ~/.claude/skills && cp -r skills/kanco ~/.claude/skills/
+```
+
 ## Why no Docker?
 
 kanco spawns agent shells on the host so they can run your real toolchain
