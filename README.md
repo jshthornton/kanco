@@ -4,6 +4,13 @@
 
 <p align="center">A local-first kanban board for agents.</p>
 
+> **Heads up — open source, but unmaintained for outside contributions.**
+> This project is open source so you can read it, run it, and fork it, but
+> issues and pull requests are not actively triaged. If you have an idea,
+> please open a **Discussion** instead. Bug reports are welcome via
+> **Issues**, but expect them to only be acted on if they affect core users.
+> No response is not a snub — it's the default.
+
 - Drag-and-drop kanban UI (React + dnd-kit + TanStack Router)
 - Hono backend with SQLite (better-sqlite3)
 - Built-in **MCP server** over HTTP so Claude Code, Codex, and other MCP clients
