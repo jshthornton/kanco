@@ -1,11 +1,13 @@
 {
-  "name": "kanco",
+  "name": "kanco-monorepo",
   "version": "0.0.1",
   "private": true,
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "dev": "pnpm -r --parallel --filter=./apps/* run dev",
-    "build": "pnpm -r run build",
+    "build:web": "pnpm --filter @kanco/web run build",
+    "build:server": "pnpm --filter @jshthornton/kanco run build",
+    "build": "pnpm run build:web && pnpm run build:server",
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck"
   },

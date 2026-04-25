@@ -1,9 +1,0 @@
-node_modules
-**/node_modules
-**/dist
-apps/server/public
-kanco-data
-.git
-.github
-*.log
-.DS_Store

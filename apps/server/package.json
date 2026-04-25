@@ -1,18 +1,48 @@
 {
-  "name": "@kanco/server",
-  "version": "0.0.1",
-  "private": true,
+  "name": "@jshthornton/kanco",
+  "version": "0.1.2",
+  "description": "Local-first kanban board for agents — kanban UI + MCP server in one binary.",
+  "license": "MIT",
+  "author": "Joshua Thornton",
+  "homepage": "https://github.com/jshthornton/kanco#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jshthornton/kanco.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jshthornton/kanco/issues"
+  },
+  "keywords": [
+    "kanban",
+    "mcp",
+    "agents",
+    "claude-code",
+    "github",
+    "sqlite"
+  ],
   "type": "module",
+  "bin": {
+    "kanco": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "public",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsup",
     "start": "node dist/index.js",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm --filter @kanco/web run build && pnpm run build && node -e \"require('node:fs').copyFileSync('../../README.md','README.md');require('node:fs').copyFileSync('../../LICENSE','LICENSE');\""
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
-    "@kanco/shared": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.0.4",
     "better-sqlite3": "^11.7.0",
     "hono": "^4.6.13",
@@ -21,6 +51,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@kanco/shared": "workspace:*",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.2",
     "tsup": "^8.3.5",

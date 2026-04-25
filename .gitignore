@@ -23,3 +23,7 @@ kanco-data/
 # Build output
 apps/server/public/
 apps/web/dist/
+
+# Copied in by `pnpm --filter kanco prepublishOnly`
+apps/server/README.md
+apps/server/LICENSE

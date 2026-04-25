@@ -17,9 +17,6 @@ importers:
       '@hono/node-server':
         specifier: ^1.13.7
         version: 1.19.14(hono@4.12.15)
-      '@kanco/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
       '@modelcontextprotocol/sdk':
         specifier: ^1.0.4
         version: 1.29.0(zod@3.25.76)
@@ -39,6 +36,9 @@ importers:
         specifier: ^3.23.8
         version: 3.25.76
     devDependencies:
+      '@kanco/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@types/better-sqlite3':
         specifier: ^7.6.12
         version: 7.6.13
