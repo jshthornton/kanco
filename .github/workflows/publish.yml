@@ -45,9 +45,17 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # Trusted Publisher (OIDC) auth requires npm >=11.5. Node 20's bundled
+      # npm is 10.x — it signs provenance fine but doesn't do the registry
+      # OIDC exchange and the PUT 404s. Upgrade npm before publishing.
+      - name: Upgrade npm for OIDC support
+        run: npm install -g npm@latest
+
       # Auth is via npm Trusted Publisher (OIDC): no NPM_TOKEN needed.
       # The package on npmjs.com must be configured with this repo + workflow
       # as a trusted publisher. Provenance is published alongside the tarball.
+      # Uses `npm publish` directly: pnpm publish doesn't run the OIDC token
+      # exchange that npm CLI does internally for trusted publishers.
       - name: Publish
         working-directory: apps/server
-        run: pnpm publish --access public --no-git-checks --provenance
+        run: npm publish --access public --provenance

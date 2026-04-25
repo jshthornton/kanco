@@ -1,6 +1,6 @@
 {
   "name": "@jshthornton/kanco",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Local-first kanban board for agents — kanban UI + MCP server in one binary.",
   "license": "MIT",
   "author": "Joshua Thornton",
