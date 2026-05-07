@@ -29,7 +29,8 @@ function randomBranchSlug(): string {
 
 interface SessionRow {
   id: string;
-  ticket_id: string;
+  ticket_id: string | null;
+  bead_id: string | null;
   space_id: string;
   agent: AgentKind;
   agent_session_id: string | null;
@@ -202,9 +203,9 @@ export function startSession(db: DB, opts: StartSessionOpts): AgentSession {
 
   db.prepare(
     `INSERT INTO agent_sessions
-       (id, ticket_id, space_id, agent, agent_session_id, worktree_path, branch, cwd, pid, status,
+       (id, ticket_id, bead_id, space_id, agent, agent_session_id, worktree_path, branch, cwd, pid, status,
         exit_code, log_path, prompt, include_parent, used_worktree, started_at, ended_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     ticket.id,
@@ -326,18 +327,194 @@ function pidAlive(pid: number): boolean {
 export function recoverOrphanSessions(db: DB): void {
   const rows = db
     .prepare(
-      `SELECT id, pid, space_id, ticket_id FROM agent_sessions
+      `SELECT id, pid, space_id, ticket_id, bead_id FROM agent_sessions
        WHERE status IN ('running', 'starting')`,
     )
-    .all() as { id: string; pid: number | null; space_id: string; ticket_id: string }[];
+    .all() as {
+    id: string;
+    pid: number | null;
+    space_id: string;
+    ticket_id: string | null;
+    bead_id: string | null;
+  }[];
   const now = Date.now();
   for (const r of rows) {
     if (r.pid != null && pidAlive(r.pid)) continue;
     db.prepare(
       `UPDATE agent_sessions SET status = 'exited', ended_at = ? WHERE id = ?`,
     ).run(now, r.id);
-    emitChange({ kind: "session.ended", space_id: r.space_id, ticket_id: r.ticket_id });
+    emitChange({
+      kind: "session.ended",
+      space_id: r.space_id,
+      ticket_id: r.ticket_id ?? undefined,
+      bead_id: r.bead_id ?? undefined,
+    });
   }
+}
+
+// ---- bead-keyed sessions ----
+
+export interface StartBeadSessionOpts {
+  space_id: string;
+  bead_id: string;
+  agent: AgentKind;
+  worktree: boolean;
+}
+
+function buildBeadPrompt(beadId: string): string {
+  return [
+    `You are working on bead **${beadId}** in this repository.`,
+    "",
+    "Use the `bd` CLI (or the kanco MCP tools `get_bead`, `list_beads`,",
+    "`get_bead_graph`) to read this bead. Walk the parent chain — for any",
+    "bead with a `parent` field, fetch that parent and recurse — to gather",
+    "context. Treat blocking and parent-child dependencies as required",
+    "context, related/tracks as background.",
+    "",
+    "Implement the bead end-to-end: explore the codebase, make the changes,",
+    "run type-checks and tests, iterate until done. Commit on the current",
+    "branch when complete. Update the bead status (`bd update <id>",
+    "--status in_progress` / `--status closed`) as you progress.",
+    "Do not stop after only gathering context — carry the work to completion.",
+  ].join("\n");
+}
+
+export function startBeadSession(db: DB, opts: StartBeadSessionOpts): AgentSession {
+  const space = getSpace(db, opts.space_id);
+  if (!space) throw new Error(`space ${opts.space_id} not found`);
+  if (!space.repo_root) {
+    const e = new Error("space has no repo_root configured") as Error & { code: string };
+    e.code = "repo_root_not_configured";
+    throw e;
+  }
+  const repoRoot = resolve(space.repo_root);
+  if (!existsSync(repoRoot)) {
+    const e = new Error(`repo_root ${repoRoot} does not exist`) as Error & { code: string };
+    e.code = "repo_root_missing";
+    throw e;
+  }
+
+  const prompt = buildBeadPrompt(opts.bead_id);
+  const adapter = getAgent(opts.agent);
+
+  const id = nanoid(12);
+  const agentSessionId = randomUUID();
+  const baseDir = dataDir();
+  const sessionsDir = join(baseDir, "sessions");
+  mkdirSync(sessionsDir, { recursive: true });
+  const log_path = join(sessionsDir, `${id}.log`);
+
+  let cwd = repoRoot;
+  let worktree_path: string | null = null;
+  let branch: string | null = null;
+  if (opts.worktree) {
+    const worktreesRoot = join(repoRoot, ".kanco", "worktrees");
+    mkdirSync(worktreesRoot, { recursive: true });
+    worktree_path = join(worktreesRoot, id);
+    branch = `kanco/${opts.bead_id}-${randomBranchSlug()}`;
+    try {
+      execFileSync(
+        "git",
+        ["-C", repoRoot, "worktree", "add", "-b", branch, worktree_path, "HEAD"],
+        { stdio: "pipe" },
+      );
+    } catch (err) {
+      const stderr =
+        err instanceof Error ? (err as Error & { stderr?: Buffer }).stderr?.toString() : "";
+      const detail = stderr || (err instanceof Error ? err.message : String(err));
+      const e = new Error(`git worktree add failed: ${detail}`) as Error & { code: string };
+      e.code = "worktree_failed";
+      throw e;
+    }
+    cwd = worktree_path;
+  }
+
+  const logFd = openSync(log_path, "a");
+  const { command, args } = adapter.buildSpawn(prompt, agentSessionId);
+  const now = Date.now();
+
+  let pid: number | null = null;
+  let initialStatus: AgentSession["status"] = "running";
+  let exitCode: number | null = null;
+  let endedAt: number | null = null;
+
+  try {
+    const child = spawn(command, args, {
+      cwd,
+      stdio: ["ignore", logFd, logFd],
+      detached: false,
+    });
+    pid = child.pid ?? null;
+
+    child.on("exit", (code, signal) => {
+      const status: AgentSession["status"] = signal && code === null ? "error" : "exited";
+      const ec = code ?? null;
+      db.prepare(
+        `UPDATE agent_sessions SET status = ?, exit_code = ?, ended_at = ? WHERE id = ?`,
+      ).run(status, ec, Date.now(), id);
+      try {
+        closeSync(logFd);
+      } catch {
+        /* already closed */
+      }
+      emitChange({ kind: "session.ended", space_id: opts.space_id, bead_id: opts.bead_id });
+    });
+    child.on("error", (err) => {
+      db.prepare(
+        `UPDATE agent_sessions SET status = 'error', ended_at = ? WHERE id = ?`,
+      ).run(Date.now(), id);
+      console.error(`[sessions] spawn error for ${id}:`, err);
+      emitChange({ kind: "session.ended", space_id: opts.space_id, bead_id: opts.bead_id });
+    });
+  } catch (err) {
+    initialStatus = "error";
+    endedAt = now;
+    exitCode = null;
+    console.error(`[sessions] failed to spawn ${command}:`, err);
+    try {
+      closeSync(logFd);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  db.prepare(
+    `INSERT INTO agent_sessions
+       (id, ticket_id, bead_id, space_id, agent, agent_session_id, worktree_path, branch, cwd, pid, status,
+        exit_code, log_path, prompt, include_parent, used_worktree, started_at, ended_at)
+     VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    id,
+    opts.bead_id,
+    opts.space_id,
+    opts.agent,
+    agentSessionId,
+    worktree_path,
+    branch,
+    cwd,
+    pid,
+    initialStatus,
+    exitCode,
+    log_path,
+    prompt,
+    0,
+    opts.worktree ? 1 : 0,
+    now,
+    endedAt,
+  );
+
+  emitChange({ kind: "session.started", space_id: opts.space_id, bead_id: opts.bead_id });
+
+  return rowToSession(getSessionRow(db, id)!);
+}
+
+export function listBeadSessions(db: DB, space_id: string, bead_id: string): AgentSession[] {
+  const rows = db
+    .prepare(
+      `SELECT * FROM agent_sessions WHERE space_id = ? AND bead_id = ? ORDER BY started_at DESC`,
+    )
+    .all(space_id, bead_id) as SessionRow[];
+  return rows.map(rowToSession);
 }
 
 /** Start a background interval that sweeps orphans every `intervalMs`. */

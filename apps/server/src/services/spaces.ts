@@ -3,6 +3,8 @@ import { nanoid } from "nanoid";
 import { seedDefaultColumnsForSpace } from "../db/migrations.js";
 import type { Space, Column } from "@kanco/shared";
 import { emitChange } from "../events.js";
+import { getBeadsClient } from "./beads/client.js";
+import { schedulePush } from "./beads/auto-push.js";
 
 function slugify(name: string): string {
   const base = name
@@ -25,7 +27,12 @@ export function getSpaceBySlug(db: DB, slug: string): Space | null {
   return (db.prepare(`SELECT * FROM spaces WHERE slug = ?`).get(slug) as Space) ?? null;
 }
 
-export function createSpace(db: DB, name: string, repo_root?: string | null): Space {
+export function createSpace(
+  db: DB,
+  name: string,
+  repo_root?: string | null,
+  dolt_remote_url?: string | null,
+): Space {
   const id = nanoid(12);
   let slug = slugify(name);
   let n = 1;
@@ -35,20 +42,41 @@ export function createSpace(db: DB, name: string, repo_root?: string | null): Sp
   }
   const created_at = Date.now();
   const repo = repo_root ?? null;
+  const remote = dolt_remote_url ?? null;
   db.transaction(() => {
     db.prepare(
-      `INSERT INTO spaces (id, name, slug, repo_root, created_at) VALUES (?, ?, ?, ?, ?)`,
-    ).run(id, name, slug, repo, created_at);
+      `INSERT INTO spaces (id, name, slug, repo_root, dolt_remote_url, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(id, name, slug, repo, remote, created_at);
     seedDefaultColumnsForSpace(db, id);
   })();
   emitChange({ kind: "space.created", space_id: id });
-  return { id, name, slug, repo_root: repo, created_at };
+  // Best-effort beads init when a repo path is provided.
+  if (repo) {
+    void (async () => {
+      try {
+        const client = getBeadsClient({ spaceId: id, repoPath: repo });
+        await client.ensureInitialized();
+        if (remote) {
+          try {
+            await client.doltAddRemote("origin", remote);
+          } catch (err) {
+            // remote may already be configured — log and continue
+            console.warn(`[spaces] add remote for ${id}:`, err);
+          }
+          schedulePush(client);
+        }
+      } catch (err) {
+        console.error(`[spaces] beads init failed for ${id}:`, err);
+      }
+    })();
+  }
+  return { id, name, slug, repo_root: repo, dolt_remote_url: remote, created_at };
 }
 
 export function updateSpace(
   db: DB,
   id: string,
-  patch: { name?: string; repo_root?: string | null },
+  patch: { name?: string; repo_root?: string | null; dolt_remote_url?: string | null },
 ): Space {
   const s = getSpace(db, id);
   if (!s) throw new Error(`space ${id} not found`);
@@ -56,12 +84,14 @@ export function updateSpace(
     ...s,
     name: patch.name ?? s.name,
     repo_root: patch.repo_root === undefined ? s.repo_root : (patch.repo_root || null),
+    dolt_remote_url:
+      patch.dolt_remote_url === undefined
+        ? s.dolt_remote_url ?? null
+        : (patch.dolt_remote_url || null),
   };
-  db.prepare(`UPDATE spaces SET name = ?, repo_root = ? WHERE id = ?`).run(
-    next.name,
-    next.repo_root,
-    id,
-  );
+  db.prepare(
+    `UPDATE spaces SET name = ?, repo_root = ?, dolt_remote_url = ? WHERE id = ?`,
+  ).run(next.name, next.repo_root, next.dolt_remote_url ?? null, id);
   emitChange({ kind: "space.updated", space_id: id });
   return next;
 }
@@ -75,4 +105,19 @@ export function listColumns(db: DB, space_id: string): Column[] {
 /** Columns shown on the board — excludes "Closed" (terminal hidden state). */
 export function listBoardColumns(db: DB, space_id: string): Column[] {
   return listColumns(db, space_id).filter((c) => c.name !== "Closed");
+}
+
+/**
+ * Get a beads client bound to a space. Throws if the space has no `repo_root`
+ * configured (beads requires a per-repo `.beads/` directory).
+ */
+export function beadsForSpace(db: DB, space_id: string) {
+  const space = getSpace(db, space_id);
+  if (!space) throw new Error(`space ${space_id} not found`);
+  if (!space.repo_root) {
+    const err = new Error(`space ${space_id} has no repo_root configured`);
+    (err as Error & { code?: string }).code = "no_repo_root";
+    throw err;
+  }
+  return getBeadsClient({ spaceId: space_id, repoPath: space.repo_root });
 }

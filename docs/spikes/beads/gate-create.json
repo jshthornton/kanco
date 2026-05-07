@@ -1,0 +1,15 @@
+{
+  "await_id": "42",
+  "await_type": "gh:pr",
+  "created_at": "2026-05-07T12:03:51.980184637Z",
+  "created_by": "Joshua Thornton",
+  "description": "Ad-hoc gate blocking bd-spike-3de\n\nReason: test PR gate",
+  "id": "bd-spike-zgs",
+  "issue_type": "gate",
+  "owner": "joshua.thornton@getlavanda.com",
+  "priority": 2,
+  "schema_version": 1,
+  "status": "open",
+  "title": "Gate: gh:pr 42",
+  "updated_at": "2026-05-07T12:03:51.980184637Z"
+}

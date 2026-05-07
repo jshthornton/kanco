@@ -4,7 +4,7 @@ import { useEffect } from "react";
 interface ChangeEvent {
   kind: string;
   space_id?: string;
-  ticket_id?: string;
+  bead_id?: string;
 }
 
 /**
@@ -30,17 +30,19 @@ export function useLiveSync() {
       es.addEventListener("change", (ev) => {
         try {
           const e = JSON.parse((ev as MessageEvent).data) as ChangeEvent;
-          if (e.kind === "space.created") {
+          if (e.kind === "space.created" || e.kind === "space.updated") {
             qc.invalidateQueries({ queryKey: ["spaces"] });
           }
           if (e.space_id) {
-            qc.invalidateQueries({ queryKey: ["board", e.space_id] });
+            qc.invalidateQueries({ queryKey: ["beads", e.space_id] });
+            qc.invalidateQueries({ queryKey: ["graph", e.space_id] });
+            qc.invalidateQueries({ queryKey: ["space", e.space_id] });
           }
-          if (e.ticket_id) {
-            qc.invalidateQueries({ queryKey: ["ticket", e.ticket_id] });
+          if (e.bead_id && e.space_id) {
+            qc.invalidateQueries({ queryKey: ["bead", e.space_id, e.bead_id] });
           }
-          if (e.kind.startsWith("pr.")) {
-            qc.invalidateQueries({ queryKey: ["gh-status"] });
+          if (e.kind.startsWith("dolt.push")) {
+            qc.invalidateQueries({ queryKey: ["dolt-push", e.space_id] });
           }
         } catch (err) {
           console.warn("[useLiveSync] bad event", err);

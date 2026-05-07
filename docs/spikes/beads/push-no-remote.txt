@@ -1,0 +1,14 @@
+Pushing to Dolt remote...
+No remote is configured — skipping.
+
+For solo use, pushing is optional — your issues are stored locally
+in .beads/ and versioned by Dolt automatically.
+
+To set up remote sync (for backup or team sharing):
+  bd dolt remote add origin <url>
+  bd dolt push
+
+Supported remote URLs:
+  • GitHub (via git):   git+ssh://git@github.com/org/repo.git
+  • DoltHub:            https://doltremoteapi.dolthub.com/org/repo
+  • Azure Blob Storage: az://account.blob.core.windows.net/container/path

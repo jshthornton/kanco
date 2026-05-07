@@ -11,7 +11,6 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as TicketsTicketIdRouteImport } from './routes/tickets.$ticketId'
 import { Route as SpacesSpaceIdRouteImport } from './routes/spaces.$spaceId'
 
 const SettingsRoute = SettingsRouteImport.update({
@@ -24,11 +23,6 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const TicketsTicketIdRoute = TicketsTicketIdRouteImport.update({
-  id: '/tickets/$ticketId',
-  path: '/tickets/$ticketId',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SpacesSpaceIdRoute = SpacesSpaceIdRouteImport.update({
   id: '/spaces/$spaceId',
   path: '/spaces/$spaceId',
@@ -39,34 +33,30 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
   '/spaces/$spaceId': typeof SpacesSpaceIdRoute
-  '/tickets/$ticketId': typeof TicketsTicketIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
   '/spaces/$spaceId': typeof SpacesSpaceIdRoute
-  '/tickets/$ticketId': typeof TicketsTicketIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
   '/spaces/$spaceId': typeof SpacesSpaceIdRoute
-  '/tickets/$ticketId': typeof TicketsTicketIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/settings' | '/spaces/$spaceId' | '/tickets/$ticketId'
+  fullPaths: '/' | '/settings' | '/spaces/$spaceId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/settings' | '/spaces/$spaceId' | '/tickets/$ticketId'
-  id: '__root__' | '/' | '/settings' | '/spaces/$spaceId' | '/tickets/$ticketId'
+  to: '/' | '/settings' | '/spaces/$spaceId'
+  id: '__root__' | '/' | '/settings' | '/spaces/$spaceId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SettingsRoute: typeof SettingsRoute
   SpacesSpaceIdRoute: typeof SpacesSpaceIdRoute
-  TicketsTicketIdRoute: typeof TicketsTicketIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -85,13 +75,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/tickets/$ticketId': {
-      id: '/tickets/$ticketId'
-      path: '/tickets/$ticketId'
-      fullPath: '/tickets/$ticketId'
-      preLoaderRoute: typeof TicketsTicketIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/spaces/$spaceId': {
       id: '/spaces/$spaceId'
       path: '/spaces/$spaceId'
@@ -106,7 +89,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SettingsRoute: SettingsRoute,
   SpacesSpaceIdRoute: SpacesSpaceIdRoute,
-  TicketsTicketIdRoute: TicketsTicketIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

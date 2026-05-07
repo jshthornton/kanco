@@ -10,6 +10,7 @@ import { buildApi } from "./api/routes.js";
 import { makeGqlClient } from "./github/gql.js";
 import { resolveSecret } from "./github/crypto.js";
 import { startPoller } from "./workers/pr-poller.js";
+import { startBeadsPrPoller } from "./workers/beads-pr-poller.js";
 import { makeMcpHandler } from "./mcp/http.js";
 import { recoverOrphanSessions, startOrphanReaper } from "./services/sessions.js";
 
@@ -56,6 +57,7 @@ if (hasSpa) {
 const mcpHandler = makeMcpHandler({ db, gql });
 const honoListener = getRequestListener(app.fetch);
 const stopPoller = startPoller(db, gql);
+const stopBeadsPoller = startBeadsPrPoller(db, gql);
 
 const server = createServer((req, res) => {
   const url = req.url ?? "";
@@ -85,6 +87,7 @@ function shutdown() {
   shuttingDown = true;
   console.log("[kanco] shutting down");
   stopPoller();
+  stopBeadsPoller();
   stopOrphanReaper();
   server.close(() => process.exit(0));
   // SSE streams (/api/events) keep sockets open indefinitely — drop them so
