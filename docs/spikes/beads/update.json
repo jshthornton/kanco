@@ -1,0 +1,14 @@
+[
+  {
+    "id": "bd-spike-3de",
+    "title": "Spike test bead",
+    "status": "in_progress",
+    "priority": 2,
+    "issue_type": "task",
+    "owner": "joshua.thornton@getlavanda.com",
+    "created_at": "2026-05-07T12:03:41Z",
+    "created_by": "Joshua Thornton",
+    "updated_at": "2026-05-07T12:04:08Z",
+    "started_at": "2026-05-07T12:04:08Z"
+  }
+]

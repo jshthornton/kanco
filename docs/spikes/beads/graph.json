@@ -1,0 +1,5 @@
+{
+  "error": "issue ID required",
+  "hint": "Use --all for all open issues",
+  "schema_version": 1
+}

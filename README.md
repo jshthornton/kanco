@@ -11,18 +11,29 @@
 > **Issues**, but expect them to only be acted on if they affect core users.
 > No response is not a snub — it's the default.
 
-- Drag-and-drop kanban UI (React + dnd-kit + TanStack Router)
-- Hono backend with SQLite (better-sqlite3)
-- Built-in **MCP server** over HTTP so Claude Code, Codex, and other MCP clients
-  can create tickets, create subtasks, and link PRs
-- Spawns agent shells **on your host machine** — no container sandboxing
-- GitHub device-flow auth via a shared "kanco" GitHub App — no per-user setup
-- PR state drives ticket columns:
-  - draft PR → **In Progress**
-  - open PR → **In Review**
-  - merged → **Done**
-  - closed-without-merge → **Todo**
-  - manual drag wins for 1 hour
+- **Frontend for [beads](https://github.com/gastownhall/beads)** — kanco talks
+  to the `bd` CLI per space, so your tickets are stored in Dolt and sync via
+  `bd dolt push/pull`. Spaces map 1:1 to repos (one `.beads/` per repo).
+- **Two views** of the same beads:
+  - **Board** — grouped by status (open / in_progress / blocked / closed)
+  - **Graph** — React Flow + dagre, dependency edges between beads
+- **Auto-push** — every write triggers `bd dolt push` in the background; status
+  surfaces over SSE so the UI can show success / failure.
+- **`gh:pr` gate automation** — attach a PR number to a bead as a `gh:pr` gate,
+  and a poller will resolve the gate and close the bead when the PR merges.
+- Hono backend with SQLite (kanco-only state: spaces, gh tokens, agent
+  sessions, audit log) + per-space PQueue serializing `bd` writes so embedded
+  Dolt's single-writer constraint is honored.
+- Built-in **MCP server** over HTTP — Claude Code / Codex can call
+  `list_beads`, `create_bead`, `update_bead`, `add_bead_dep`, `add_bead_gate`,
+  `get_bead_graph`, `dolt_push`, plus the legacy ticket tools.
+- Spawns agent shells **on your host machine** — no container sandboxing.
+- GitHub device-flow auth via a shared "kanco" GitHub App — no per-user setup.
+
+> **Note:** the legacy ticket / column model and its kanban view remain available
+> at `/spaces/$spaceId` while we migrate away. The beads view at
+> `/spaces/$spaceId/beads` is the new primary surface. Migration of agent
+> sessions to bead IDs is tracked as follow-up work.
 
 ## Requirements
 

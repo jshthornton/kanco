@@ -19,6 +19,7 @@ export const Space = z.object({
   name: z.string(),
   slug: z.string(),
   repo_root: z.string().nullable(),
+  dolt_remote_url: z.string().nullable().optional(),
   created_at: z.number(),
 });
 export type Space = z.infer<typeof Space>;
@@ -31,7 +32,8 @@ export type AgentSessionStatus = z.infer<typeof AgentSessionStatus>;
 
 export const AgentSession = z.object({
   id: z.string(),
-  ticket_id: z.string(),
+  ticket_id: z.string().nullable(),
+  bead_id: z.string().nullable(),
   space_id: z.string(),
   agent: AgentKind,
   agent_session_id: z.string().nullable(),
@@ -105,12 +107,14 @@ export type TicketPrLink = z.infer<typeof TicketPrLink>;
 export const CreateSpaceInput = z.object({
   name: z.string().min(1).max(100),
   repo_root: z.string().min(1).max(1000).optional(),
+  dolt_remote_url: z.string().min(1).max(1000).optional(),
 });
 
 export const UpdateSpaceInput = z.object({
   id: z.string(),
   name: z.string().min(1).max(100).optional(),
   repo_root: z.string().max(1000).nullable().optional(),
+  dolt_remote_url: z.string().max(1000).nullable().optional(),
 });
 
 export const StartSessionInput = z.object({
@@ -118,6 +122,11 @@ export const StartSessionInput = z.object({
   agent: AgentKind.default("claude"),
   worktree: z.boolean().default(true),
   include_parent: z.boolean().default(true),
+});
+
+export const StartBeadSessionInput = z.object({
+  agent: AgentKind.default("claude"),
+  worktree: z.boolean().default(true),
 });
 
 export const CreateTicketInput = z.object({

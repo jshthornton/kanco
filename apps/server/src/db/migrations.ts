@@ -178,6 +178,58 @@ const MIGRATIONS: { id: string; up: (db: Database.Database) => void }[] = [
       db.exec(`ALTER TABLE agent_sessions ADD COLUMN agent_session_id TEXT`);
     },
   },
+  {
+    id: "0008_spaces_dolt_remote",
+    up(db) {
+      db.exec(`ALTER TABLE spaces ADD COLUMN dolt_remote_url TEXT`);
+    },
+  },
+  {
+    id: "0009_agent_sessions_bead_id",
+    up(db) {
+      // Rebuild agent_sessions to:
+      //  - allow ticket_id to be NULL (FK to tickets stays — references-only)
+      //  - add bead_id (no FK; beads live in external Dolt store)
+      //  - require at least one of ticket_id / bead_id via CHECK
+      db.exec(`
+        CREATE TABLE agent_sessions_new (
+          id TEXT PRIMARY KEY,
+          ticket_id TEXT REFERENCES tickets(id) ON DELETE CASCADE,
+          bead_id TEXT,
+          space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+          agent TEXT NOT NULL,
+          agent_session_id TEXT,
+          worktree_path TEXT,
+          branch TEXT,
+          cwd TEXT NOT NULL,
+          pid INTEGER,
+          status TEXT NOT NULL,
+          exit_code INTEGER,
+          log_path TEXT NOT NULL,
+          prompt TEXT NOT NULL,
+          include_parent INTEGER NOT NULL DEFAULT 0,
+          used_worktree INTEGER NOT NULL DEFAULT 0,
+          started_at INTEGER NOT NULL,
+          ended_at INTEGER,
+          CHECK (ticket_id IS NOT NULL OR bead_id IS NOT NULL)
+        );
+        INSERT INTO agent_sessions_new
+          (id, ticket_id, bead_id, space_id, agent, agent_session_id, worktree_path, branch,
+           cwd, pid, status, exit_code, log_path, prompt, include_parent, used_worktree,
+           started_at, ended_at)
+        SELECT
+          id, ticket_id, NULL, space_id, agent, agent_session_id, worktree_path, branch,
+          cwd, pid, status, exit_code, log_path, prompt, include_parent, used_worktree,
+          started_at, ended_at
+        FROM agent_sessions;
+        DROP TABLE agent_sessions;
+        ALTER TABLE agent_sessions_new RENAME TO agent_sessions;
+        CREATE INDEX idx_agent_sessions_ticket ON agent_sessions(ticket_id);
+        CREATE INDEX idx_agent_sessions_bead ON agent_sessions(bead_id);
+        CREATE INDEX idx_agent_sessions_status ON agent_sessions(status);
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database) {

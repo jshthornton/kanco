@@ -11,7 +11,9 @@ export type ChangeKind =
   | "pr.state_changed"
   | "space.updated"
   | "session.started"
-  | "session.ended";
+  | "session.ended"
+  | "bead.changed"
+  | "dolt.push.status";
 
 export interface ChangeEvent {
   kind: ChangeKind;
@@ -19,6 +21,10 @@ export interface ChangeEvent {
   space_id?: string;
   /** ticket id affected, when relevant */
   ticket_id?: string;
+  /** bead id affected, when relevant */
+  bead_id?: string;
+  /** kind-specific payload */
+  payload?: Record<string, unknown>;
 }
 
 const bus = new EventEmitter();

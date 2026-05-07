@@ -8,11 +8,13 @@ import { z } from "zod";
 import type { DB } from "../db/client.js";
 import type { GqlClient } from "../github/gql.js";
 import {
+  beadsForSpace,
   createSpace,
   getSpace,
   listColumns,
   listSpaces,
 } from "../services/spaces.js";
+import { schedulePush } from "../services/beads/auto-push.js";
 import {
   createTicket,
   getTicket,
@@ -105,6 +107,77 @@ const tools = [
     name: "unlink_pr",
     description: "Remove a PR link from a ticket by link id.",
     inputSchema: obj({ link_id: s }, ["link_id"]),
+  },
+  // ---- beads (frontend for the `bd` CLI) ----
+  {
+    name: "list_beads",
+    description: "List beads in a space. Optional status filter (open|in_progress|blocked|closed|deferred|pinned|hooked).",
+    inputSchema: obj({ space_id: s, status: sOpt }, ["space_id"]),
+  },
+  {
+    name: "get_bead",
+    description: "Show a bead with its dependencies, dependents, and gates.",
+    inputSchema: obj({ space_id: s, bead_id: s }, ["space_id", "bead_id"]),
+  },
+  {
+    name: "create_bead",
+    description: "Create a bead. Default issue_type is 'task'. Auto-pushes to the configured Dolt remote.",
+    inputSchema: obj(
+      {
+        space_id: s,
+        title: s,
+        description: sOpt,
+        issue_type: sOpt,
+        priority: num,
+      },
+      ["space_id", "title"],
+    ),
+  },
+  {
+    name: "update_bead",
+    description: "Update a bead's title, description, status, or priority. Status enum: open|in_progress|blocked|closed|deferred|pinned|hooked.",
+    inputSchema: obj(
+      {
+        space_id: s,
+        bead_id: s,
+        title: sOpt,
+        description: sOpt,
+        status: sOpt,
+        priority: num,
+      },
+      ["space_id", "bead_id"],
+    ),
+  },
+  {
+    name: "close_bead",
+    description: "Close a bead.",
+    inputSchema: obj({ space_id: s, bead_id: s }, ["space_id", "bead_id"]),
+  },
+  {
+    name: "add_bead_dep",
+    description: "Link bead_id to depends_on with a dependency type (blocks|tracks|related|parent-child|discovered-from). Default: blocks.",
+    inputSchema: obj(
+      { space_id: s, bead_id: s, depends_on: s, type: sOpt },
+      ["space_id", "bead_id", "depends_on"],
+    ),
+  },
+  {
+    name: "add_bead_gate",
+    description: "Attach an async gate that blocks a bead until resolved. type ∈ human|timer|gh:run|gh:pr|bead. For gh:pr, await_id is the PR number.",
+    inputSchema: obj(
+      { space_id: s, bead_id: s, type: s, await_id: s, reason: sOpt },
+      ["space_id", "bead_id", "type", "await_id"],
+    ),
+  },
+  {
+    name: "get_bead_graph",
+    description: "Return all non-gate beads with their cross-bead dependency edges as { nodes, edges }. Use for graph visualizations.",
+    inputSchema: obj({ space_id: s }, ["space_id"]),
+  },
+  {
+    name: "dolt_push",
+    description: "Force a `bd dolt push` for a space. Auto-push runs after every write so manual invocation is rare.",
+    inputSchema: obj({ space_id: s }, ["space_id"]),
   },
 ] as const;
 
@@ -251,6 +324,146 @@ export function createMcpServer(deps: McpDeps, clientLabel: string = "mcp"): Ser
         const { link_id } = z.object({ link_id: z.string() }).parse(args);
         unlinkPr(deps.db, link_id);
         return textResult({ ok: true });
+      }
+
+      // ---- beads ----
+
+      case "list_beads": {
+        const p = z
+          .object({ space_id: z.string(), status: z.string().optional() })
+          .parse(args);
+        const client = beadsForSpace(deps.db, p.space_id);
+        const list = await client.list({ status: p.status as never });
+        return textResult(list);
+      }
+
+      case "get_bead": {
+        const p = z.object({ space_id: z.string(), bead_id: z.string() }).parse(args);
+        const bead = await beadsForSpace(deps.db, p.space_id).show(p.bead_id);
+        if (!bead) throw new Error(`bead ${p.bead_id} not found`);
+        return textResult(bead);
+      }
+
+      case "create_bead": {
+        const p = z
+          .object({
+            space_id: z.string(),
+            title: z.string().min(1),
+            description: z.string().optional(),
+            issue_type: z.string().optional(),
+            priority: z.number().int().optional(),
+          })
+          .parse(args);
+        const client = beadsForSpace(deps.db, p.space_id);
+        const bead = await client.create({
+          title: p.title,
+          description: p.description,
+          issue_type: (p.issue_type ?? "task") as never,
+          priority: p.priority,
+        });
+        schedulePush(client);
+        return textResult(bead);
+      }
+
+      case "update_bead": {
+        const p = z
+          .object({
+            space_id: z.string(),
+            bead_id: z.string(),
+            title: z.string().optional(),
+            description: z.string().optional(),
+            status: z.string().optional(),
+            priority: z.number().int().optional(),
+          })
+          .parse(args);
+        const client = beadsForSpace(deps.db, p.space_id);
+        const bead = await client.update(p.bead_id, {
+          title: p.title,
+          description: p.description,
+          status: p.status as never,
+          priority: p.priority,
+        });
+        schedulePush(client);
+        return textResult(bead);
+      }
+
+      case "close_bead": {
+        const p = z.object({ space_id: z.string(), bead_id: z.string() }).parse(args);
+        const client = beadsForSpace(deps.db, p.space_id);
+        await client.close(p.bead_id);
+        schedulePush(client);
+        return textResult({ ok: true });
+      }
+
+      case "add_bead_dep": {
+        const p = z
+          .object({
+            space_id: z.string(),
+            bead_id: z.string(),
+            depends_on: z.string(),
+            type: z.string().optional(),
+          })
+          .parse(args);
+        const client = beadsForSpace(deps.db, p.space_id);
+        await client.addDep(p.bead_id, p.depends_on, (p.type ?? "blocks") as never);
+        schedulePush(client);
+        return textResult({ ok: true });
+      }
+
+      case "add_bead_gate": {
+        const p = z
+          .object({
+            space_id: z.string(),
+            bead_id: z.string(),
+            type: z.string(),
+            await_id: z.string(),
+            reason: z.string().optional(),
+          })
+          .parse(args);
+        const client = beadsForSpace(deps.db, p.space_id);
+        const gate = await client.addGate({
+          blocks: p.bead_id,
+          type: p.type as never,
+          awaitId: p.await_id,
+          reason: p.reason,
+        });
+        schedulePush(client);
+        return textResult(gate);
+      }
+
+      case "get_bead_graph": {
+        const { space_id } = z.object({ space_id: z.string() }).parse(args);
+        const client = beadsForSpace(deps.db, space_id);
+        const all = await client.listAll({ includeClosed: true });
+        const nonGate = all.filter((b) => b.issue_type !== "gate");
+        const idSet = new Set(nonGate.map((b) => b.id));
+        const edges = nonGate.flatMap((b) => {
+          const out: { from: string; to: string; type: string }[] = [];
+          if (b.parent && idSet.has(b.parent))
+            out.push({ from: b.id, to: b.parent, type: "parent-child" });
+          for (const d of b.dependencies ?? []) {
+            const targetId = "depends_on_id" in d ? d.depends_on_id : d.id;
+            const depType =
+              "type" in d && typeof d.type === "string"
+                ? d.type
+                : "dependency_type" in d
+                  ? d.dependency_type
+                  : "blocks";
+            if (!idSet.has(targetId)) continue;
+            if ("issue_type" in d && d.issue_type === "gate") continue;
+            if (depType === "parent-child" && b.parent === targetId) continue;
+            out.push({ from: b.id, to: targetId, type: depType });
+          }
+          return out;
+        });
+        return textResult({ nodes: nonGate, edges });
+      }
+
+      case "dolt_push": {
+        const { space_id } = z.object({ space_id: z.string() }).parse(args);
+        const client = beadsForSpace(deps.db, space_id);
+        const result = await client.doltPush();
+        return textResult(result);
       }
 
       default:
