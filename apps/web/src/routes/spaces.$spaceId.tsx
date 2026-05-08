@@ -24,7 +24,7 @@ interface Search {
   focus?: string;
   q?: string;
   isolate?: boolean;
-  order?: boolean;
+  order?: "default" | "hierarchy" | "blockers" | "hybrid";
 }
 
 export const Route = createFileRoute("/spaces/$spaceId")({
@@ -42,7 +42,13 @@ export const Route = createFileRoute("/spaces/$spaceId")({
     focus: typeof raw.focus === "string" ? raw.focus : undefined,
     q: typeof raw.q === "string" && raw.q ? raw.q : undefined,
     isolate: raw.isolate === true || raw.isolate === "1",
-    order: raw.order === true || raw.order === "1",
+    order:
+      raw.order === "hierarchy" ||
+      raw.order === "blockers" ||
+      raw.order === "hybrid" ||
+      raw.order === "default"
+        ? raw.order
+        : undefined,
   }),
 });
 
@@ -288,8 +294,8 @@ function BeadsPage() {
             isolate={search.isolate ?? false}
             onIsolateChange={(v) => setSearch({ isolate: v || undefined })}
             hasSelection={!!(search.bead ?? search.focus)}
-            order={search.order ?? false}
-            onOrderChange={(v) => setSearch({ order: v || undefined })}
+            order={search.order ?? "default"}
+            onOrderChange={(v) => setSearch({ order: v === "default" ? undefined : v })}
           />
           <BeadGraph
             spaceId={spaceId}
@@ -298,7 +304,7 @@ function BeadsPage() {
             focusId={search.focus}
             selectedId={search.bead ?? search.focus}
             isolateSelection={search.isolate ?? false}
-            orderMode={search.order ?? false}
+            orderMode={search.order ?? "default"}
             onSelectBead={(id) => setSearch({ bead: id })}
           />
         </>
@@ -482,8 +488,8 @@ function GraphEdgeToggles({
   isolate: boolean;
   onIsolateChange: (v: boolean) => void;
   hasSelection: boolean;
-  order: boolean;
-  onOrderChange: (v: boolean) => void;
+  order: "default" | "hierarchy" | "blockers" | "hybrid";
+  onOrderChange: (v: "default" | "hierarchy" | "blockers" | "hybrid") => void;
 }) {
   const toggle = (t: BeadDepType) => {
     const next = new Set(hidden);
@@ -516,16 +522,20 @@ function GraphEdgeToggles({
         />
         isolate selection
       </label>
-      <label
-        style={{ fontSize: "0.8rem" }}
-        title="Layer beads left-to-right by blocks-chain depth. Column 0 = ready to start."
-      >
-        <input
-          type="checkbox"
-          checked={order}
-          onChange={(e) => onOrderChange(e.target.checked)}
-        />
-        order by blockers
+      <label style={{ fontSize: "0.8rem" }}>
+        order by:
+        <select
+          value={order}
+          onChange={(e) =>
+            onOrderChange(e.target.value as "default" | "hierarchy" | "blockers" | "hybrid")
+          }
+          title="Choose how to lay out the graph"
+        >
+          <option value="default">default (all edges)</option>
+          <option value="hierarchy">hierarchy (parent → child)</option>
+          <option value="blockers">blockers (LR, ready first)</option>
+          <option value="hybrid">hybrid (parent + blockers)</option>
+        </select>
       </label>
     </div>
   );

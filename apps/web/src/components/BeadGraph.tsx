@@ -27,12 +27,18 @@ interface Props {
   selectedId?: string;
   isolateSelection?: boolean;
   /**
-   * Layered topological order by `blocks` edges. Level 0 = ready (no open
-   * blockers). Other edge types still render but don't affect layout.
+   * - `default`: dagre over all visible edges (legacy).
+   * - `hierarchy`: dagre TB using only parent-child as rank constraints.
+   * - `blockers`: LR layered by blocks-chain depth. Column 0 = ready.
+   * - `hybrid`: dagre TB using both parent-child (primary) and blocks
+   *    (secondary) as rank constraints — blocker sits above blocked
+   *    within its parent group.
    */
-  orderMode?: boolean;
+  orderMode?: "default" | "hierarchy" | "blockers" | "hybrid";
   onSelectBead?: (id: string) => void;
 }
+
+export type GraphOrderMode = "default" | "hierarchy" | "blockers" | "hybrid";
 
 const NODE_WIDTH = 220;
 const NODE_HEIGHT = 70;
@@ -180,7 +186,7 @@ export function BeadGraph({
     // Order-mode level: longest blocks-chain depth (using only open beads
     // for the rank computation; closed beads collapse to level 0 visually).
     const level = new Map<string, number>();
-    if (orderMode) {
+    if (orderMode === "blockers") {
       const blocksOut = new Map<string, string[]>(); // to -> [from]
       for (const e of data.edges) {
         if (e.type !== "blocks") continue;
@@ -232,7 +238,7 @@ export function BeadGraph({
       }
     }
     let positions: Map<string, { x: number; y: number }>;
-    if (orderMode) {
+    if (orderMode === "blockers") {
       // LR layered layout: x = level * step, y stacked within level.
       const colStep = NODE_WIDTH + 120;
       const rowStep = NODE_HEIGHT + 30;
@@ -258,7 +264,13 @@ export function BeadGraph({
     } else {
       // Server convention: e.to is the rank-ancestor (parent / blocker / tracked
       // bead), e.from is the dependent. Keep e.to above e.from in dagre.
-      const rankPairs = visibleEdges.map((e) => ({ above: e.to, below: e.from }));
+      const rankSource =
+        orderMode === "hierarchy"
+          ? visibleEdges.filter((e) => e.type === "parent-child")
+          : orderMode === "hybrid"
+            ? visibleEdges.filter((e) => e.type === "parent-child" || e.type === "blocks")
+            : visibleEdges;
+      const rankPairs = rankSource.map((e) => ({ above: e.to, below: e.from }));
       positions = runDagre(baseNodes, rankPairs);
     }
     const nodes: Node[] = baseNodes.map((n) => ({
