@@ -3,6 +3,7 @@ import type { GqlClient } from "../../github/gql.js";
 import type { Bead, Space } from "@kanco/shared";
 import { getBeadsClient } from "./client.js";
 import { schedulePush } from "./auto-push.js";
+import { listSpaceRepos } from "../spaces.js";
 import { emitChange } from "../../events.js";
 
 interface RepoCoords {
@@ -10,17 +11,20 @@ interface RepoCoords {
   repo: string;
 }
 
-/** Resolve owner/repo for a space. Uses first whitelisted repo. */
-function repoForSpace(db: DB, space_id: string): RepoCoords | null {
-  const row = db
-    .prepare(`SELECT owner, repo FROM space_repos WHERE space_id = ? LIMIT 1`)
-    .get(space_id) as RepoCoords | undefined;
-  return row ?? null;
+/**
+ * Resolve owner/repo for a space. Uses first whitelisted repo, falling back to
+ * the parsed git origin (matches `listSpaceRepos` behaviour) so spaces without
+ * a `space_repos` row still get PR sync.
+ */
+async function repoForSpace(db: DB, space_id: string): Promise<RepoCoords | null> {
+  const repos = await listSpaceRepos(db, space_id);
+  return repos[0] ?? null;
 }
 
 interface PendingGate {
   blockedBead: Bead;
   gateId: string;
+  gateStatus: "open" | "closed";
   prNumber: number;
 }
 
@@ -30,15 +34,17 @@ interface PendingGate {
  * export form (`depends_on_id`).
  */
 function listPendingGates(beads: Bead[]): PendingGate[] {
+  // Pick gh:pr gates whose blocked bead is still open. Includes gates that
+  // already resolved (status=closed) but whose bead never made it to closed —
+  // a previous tick may have crashed mid-flight, leaving an orphan.
   const gates = beads.filter(
-    (b) => b.issue_type === "gate" && b.status === "open" && b.await_type === "gh:pr",
+    (b) => b.issue_type === "gate" && b.await_type === "gh:pr",
   );
   const out: PendingGate[] = [];
   for (const gate of gates) {
     if (!gate.await_id) continue;
     const num = Number(gate.await_id);
     if (!Number.isFinite(num)) continue;
-    // Find blocked bead — the one whose dependencies include this gate id.
     const blocked = beads.find((b) => {
       if (b.issue_type === "gate") return false;
       return (b.dependencies ?? []).some((d) => {
@@ -48,7 +54,13 @@ function listPendingGates(beads: Bead[]): PendingGate[] {
       });
     });
     if (!blocked) continue;
-    out.push({ blockedBead: blocked, gateId: gate.id, prNumber: num });
+    if (blocked.status === "closed") continue;
+    out.push({
+      blockedBead: blocked,
+      gateId: gate.id,
+      gateStatus: gate.status === "closed" ? "closed" : "open",
+      prNumber: num,
+    });
   }
   return out;
 }
@@ -66,7 +78,7 @@ export async function syncSpacePrGates(
   space: Space,
 ): Promise<PrSyncResult> {
   if (!space.repo_root) return { space_id: space.id, checked: 0, resolved: 0, errors: 0 };
-  const coords = repoForSpace(db, space.id);
+  const coords = await repoForSpace(db, space.id);
   const result: PrSyncResult = { space_id: space.id, checked: 0, resolved: 0, errors: 0 };
   if (!coords) return result;
 
@@ -83,14 +95,16 @@ export async function syncSpacePrGates(
   }
   const pending = listPendingGates(beads);
   let mutated = false;
-  for (const { blockedBead, gateId, prNumber } of pending) {
+  for (const { blockedBead, gateId, gateStatus, prNumber } of pending) {
     result.checked += 1;
     try {
       const info = await gql.fetchPullRequest(coords.owner, coords.repo, prNumber);
       if (!info) continue;
       if (info.state === "merged") {
-        await client.resolveGate(gateId);
-        await client.close(blockedBead.id);
+        // Close bead first; --force because the gate itself counts as an
+        // unsatisfied dep until we resolve it next.
+        await client.close(blockedBead.id, { force: true, reason: `PR #${prNumber} merged` });
+        if (gateStatus === "open") await client.resolveGate(gateId);
         result.resolved += 1;
         mutated = true;
         emitChange({
@@ -100,16 +114,17 @@ export async function syncSpacePrGates(
           payload: { reason: "pr_merged", pr: { ...coords, number: prNumber } },
         });
       } else if (info.state === "closed") {
-        // PR closed without merge — resolve gate but leave bead status as-is.
-        await client.resolveGate(gateId);
-        result.resolved += 1;
-        mutated = true;
-        emitChange({
-          kind: "bead.changed",
-          space_id: space.id,
-          bead_id: blockedBead.id,
-          payload: { reason: "pr_closed", pr: { ...coords, number: prNumber } },
-        });
+        if (gateStatus === "open") {
+          await client.resolveGate(gateId);
+          result.resolved += 1;
+          mutated = true;
+          emitChange({
+            kind: "bead.changed",
+            space_id: space.id,
+            bead_id: blockedBead.id,
+            payload: { reason: "pr_closed", pr: { ...coords, number: prNumber } },
+          });
+        }
       }
     } catch (err) {
       result.errors += 1;

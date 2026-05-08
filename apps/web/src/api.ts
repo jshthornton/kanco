@@ -36,6 +36,8 @@ export const api = {
   ) =>
     http<Space>(`/api/spaces/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   getSpace: (id: string) => http<Space>(`/api/spaces/${id}`),
+  listSpaceRepos: (id: string) =>
+    http<{ owner: string; repo: string }[]>(`/api/spaces/${id}/repos`),
 
   // ---- agent sessions (still keyed by legacy ticket_id; refactor to bead_id pending) ----
   listTicketSessions: (ticket_id: string) =>

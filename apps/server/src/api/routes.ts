@@ -25,6 +25,7 @@ import {
   createSpace,
   getSpace,
   listBoardColumns,
+  listSpaceRepos,
   listSpaces,
   updateSpace,
 } from "../services/spaces.js";
@@ -125,6 +126,10 @@ export function buildApi(deps: ApiDeps): Hono {
   });
 
   api.get("/spaces/:id/columns", (c) => c.json(listBoardColumns(deps.db, c.req.param("id"))));
+
+  api.get("/spaces/:id/repos", async (c) =>
+    c.json(await listSpaceRepos(deps.db, c.req.param("id"))),
+  );
 
   api.get("/spaces/:id/tickets", (c) => {
     const space_id = c.req.param("id");
