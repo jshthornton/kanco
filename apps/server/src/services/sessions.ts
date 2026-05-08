@@ -416,7 +416,8 @@ function preseedClaudeSettings(cwd: string): void {
   }
 }
 
-function buildBeadPrompt(beadId: string): string {
+function buildBeadPrompt(beadId: string, agent: AgentKind, sessionId: string): string {
+  const owner = `kanco-${agent}-${sessionId}`;
   return [
     `You are working on bead **${beadId}** in this repository.`,
     "",
@@ -431,6 +432,8 @@ function buildBeadPrompt(beadId: string): string {
     "branch, push, and open a PR with `gh pr create`.",
     "",
     "Status handling:",
+    "- Claim the bead before starting so others can see it's being worked on:",
+    `  \`bd assign ${beadId} ${owner}\`.`,
     "- Set the bead to `in_progress` when you start work:",
     `  \`bd update ${beadId} --status in_progress\`.`,
     "- After opening the PR, attach a gate so kanco can auto-close the bead",
@@ -459,10 +462,10 @@ export function startBeadSession(db: DB, opts: StartBeadSessionOpts): AgentSessi
     throw e;
   }
 
-  const prompt = buildBeadPrompt(opts.bead_id);
   const adapter = getAgent(opts.agent);
 
   const id = nanoid(12);
+  const prompt = buildBeadPrompt(opts.bead_id, opts.agent, id);
   const agentSessionId = randomUUID();
   const baseDir = dataDir();
   const sessionsDir = join(baseDir, "sessions");
