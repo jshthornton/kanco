@@ -5,6 +5,7 @@ import type {
   BeadGateAwaitType,
   BeadGraph,
   BeadIssueType,
+  BeadSessionSummary,
   BeadStatus,
   BeadSummary,
   Space,
@@ -164,6 +165,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+  listBeadSessionSummary: (spaceId: string) =>
+    http<BeadSessionSummary[]>(`/api/spaces/${spaceId}/bead-sessions-summary`),
   listBeadSessions: (spaceId: string, beadId: string) =>
     http<AgentSession[]>(`/api/spaces/${spaceId}/beads/${beadId}/sessions`),
   startBeadSession: (

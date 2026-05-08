@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "../api";
-import type { AgentKind, Bead, BeadShowEdge, BeadStatus } from "@kanco/shared";
+import type { AgentKind, AgentSession, Bead, BeadShowEdge, BeadStatus } from "@kanco/shared";
 import { BOARD_STATUSES, STATUS_LABEL } from "../lib/beads-columns";
 import { BeadId } from "./BeadId";
 
@@ -89,6 +89,11 @@ export function BeadDetail({
   // otherwise we'd guess wrong on multi-repo spaces.
   const prRepo = repos?.length === 1 ? repos[0] : null;
 
+  const { data: space } = useQuery({
+    queryKey: ["space", spaceId],
+    queryFn: () => api.getSpace(spaceId),
+  });
+  const spaceRepoRoot = space?.repo_root ?? null;
   const { data: sessions } = useQuery({
     queryKey: ["bead-sessions", spaceId, beadId],
     queryFn: () => api.listBeadSessions(spaceId, beadId),
@@ -381,16 +386,9 @@ export function BeadDetail({
         {(sessions ?? []).length === 0 ? (
           <p className="muted" style={{ fontSize: "0.8rem" }}>No sessions yet.</p>
         ) : (
-          <ul style={{ listStyle: "none", padding: 0, fontSize: "0.8rem" }}>
+          <ul className="session-list">
             {(sessions ?? []).map((s) => (
-              <li key={s.id}>
-                <code>{s.id}</code> · {s.agent} · {s.status}
-                {s.branch && (
-                  <>
-                    {" · "}<code>{s.branch}</code>
-                  </>
-                )}
-              </li>
+              <SessionRow key={s.id} session={s} repoRoot={spaceRepoRoot} />
             ))}
           </ul>
         )}
@@ -409,4 +407,131 @@ export function BeadDetail({
       </section>
     </aside>
   );
+}
+
+function SessionRow({
+  session,
+  repoRoot,
+}: {
+  session: AgentSession;
+  repoRoot: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pathStyle, setPathStyle] = useState<"relative" | "absolute">("relative");
+  const { data } = useQuery({
+    queryKey: ["session", session.id],
+    queryFn: () => api.getSession(session.id),
+    enabled: open,
+    refetchInterval: open && session.status === "running" ? 2_000 : false,
+  });
+
+  const relCwd = relativePath(repoRoot, session.cwd);
+  const canRelative = relCwd !== null;
+  const useRelative = pathStyle === "relative" && canRelative;
+  const cwdForCmd = useRelative ? (relCwd as string) : session.cwd;
+  const tailCmd = `tail -f ${shellQuote(session.log_path)}`;
+  const resumeFlag = session.agent_session_id
+    ? `--resume ${session.agent_session_id}`
+    : `--resume`;
+  const attachCmd =
+    cwdForCmd === "."
+      ? `${session.agent} ${resumeFlag}`
+      : `( cd ${shellQuote(cwdForCmd)} && ${session.agent} ${resumeFlag} )`;
+
+  return (
+    <li className="session-row">
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+        <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+          <span className="pill">{session.agent}</span>
+          <span className={`pill status-${session.status}`}>{session.status}</span>
+          {session.used_worktree && session.branch && (
+            <span className="muted" style={{ fontFamily: "monospace", fontSize: 12 }}>
+              {session.branch}
+            </span>
+          )}
+          <span className="muted" style={{ fontSize: 12 }}>
+            {new Date(session.started_at).toLocaleString()}
+          </span>
+        </div>
+        <button onClick={() => setOpen((v) => !v)}>{open ? "Hide" : "Open"}</button>
+      </div>
+      {open && (
+        <div className="stack" style={{ gap: 6, marginTop: 6 }}>
+          <CmdBlock label="Tail the live log" cmd={tailCmd} />
+          <div className="stack" style={{ gap: 2 }}>
+            <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <div className="muted" style={{ fontSize: 12 }}>
+                Attach in your terminal{useRelative ? " (run from repo root)" : ""}
+              </div>
+              {canRelative && (
+                <div className="row" style={{ gap: 4, fontSize: 12 }}>
+                  <label className="row" style={{ gap: 2 }}>
+                    <input
+                      type="radio"
+                      checked={pathStyle === "relative"}
+                      onChange={() => setPathStyle("relative")}
+                    />
+                    Relative
+                  </label>
+                  <label className="row" style={{ gap: 2 }}>
+                    <input
+                      type="radio"
+                      checked={pathStyle === "absolute"}
+                      onChange={() => setPathStyle("absolute")}
+                    />
+                    Absolute
+                  </label>
+                </div>
+              )}
+            </div>
+            <CmdBlock label="" cmd={attachCmd} />
+          </div>
+          <div className="muted" style={{ fontSize: 12 }}>
+            {session.status === "exited" && session.exit_code != null && (
+              <>Exited code {session.exit_code}. </>
+            )}
+            {session.status === "error" && <>Errored. </>}
+            Recent log output:
+          </div>
+          <pre className="session-log">{data?.log_tail ?? "(loading…)"}</pre>
+        </div>
+      )}
+    </li>
+  );
+}
+
+function CmdBlock({ label, cmd }: { label: string; cmd: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(cmd);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* ignore */
+    }
+  };
+  return (
+    <div className="stack" style={{ gap: 2 }}>
+      {label && <div className="muted" style={{ fontSize: 12 }}>{label}</div>}
+      <div className="row" style={{ gap: 6, alignItems: "stretch" }}>
+        <pre className="cmd-block">{cmd}</pre>
+        <button onClick={copy}>{copied ? "Copied" : "Copy"}</button>
+      </div>
+    </div>
+  );
+}
+
+function shellQuote(s: string): string {
+  if (/^[\w@%+=:,./-]+$/.test(s)) return s;
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+function relativePath(repoRoot: string | null, cwd: string): string | null {
+  if (!repoRoot) return null;
+  const root = repoRoot.replace(/\/+$/, "");
+  if (cwd === root) return ".";
+  const prefix = root + "/";
+  if (cwd.startsWith(prefix)) return cwd.slice(prefix.length);
+  return null;
 }

@@ -282,6 +282,39 @@ export function listSpaceSessionSummary(db: DB, space_id: string): TicketSession
   }));
 }
 
+export interface BeadSessionSummaryRow {
+  bead_id: string;
+  running: number;
+  finished: number;
+  errored: number;
+}
+
+export function listSpaceBeadSessionSummary(db: DB, space_id: string): BeadSessionSummaryRow[] {
+  const rows = db
+    .prepare(
+      `SELECT
+         bead_id,
+         SUM(CASE WHEN status IN ('running', 'starting') THEN 1 ELSE 0 END) AS running,
+         SUM(CASE WHEN status = 'exited' THEN 1 ELSE 0 END) AS finished,
+         SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS errored
+       FROM agent_sessions
+       WHERE space_id = ? AND bead_id IS NOT NULL
+       GROUP BY bead_id`,
+    )
+    .all(space_id) as Array<{
+    bead_id: string;
+    running: number | null;
+    finished: number | null;
+    errored: number | null;
+  }>;
+  return rows.map((r) => ({
+    bead_id: r.bead_id,
+    running: r.running ?? 0,
+    finished: r.finished ?? 0,
+    errored: r.errored ?? 0,
+  }));
+}
+
 export function listTicketSessions(db: DB, ticket_id: string): AgentSession[] {
   const rows = db
     .prepare(`SELECT * FROM agent_sessions WHERE ticket_id = ? ORDER BY started_at DESC`)

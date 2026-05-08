@@ -3,7 +3,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../api";
-import type { BeadDepType, BeadStatus, BeadSummary } from "@kanco/shared";
+import type {
+  BeadDepType,
+  BeadSessionSummary,
+  BeadStatus,
+  BeadSummary,
+} from "@kanco/shared";
 import { BOARD_STATUSES, STATUS_COLOR, STATUS_LABEL } from "../lib/beads-columns";
 import { BeadCreateModal, type BeadCreateValues } from "../components/BeadCreateModal";
 import { BeadDetail } from "../components/BeadDetail";
@@ -75,6 +80,17 @@ function BeadsPage() {
       }),
     refetchInterval: 60_000,
   });
+  const { data: sessionSummary } = useQuery({
+    queryKey: ["bead-session-summary", spaceId],
+    queryFn: () => api.listBeadSessionSummary(spaceId),
+    refetchInterval: 5_000,
+  });
+  const sessionsByBead = useMemo(() => {
+    const m = new Map<string, BeadSessionSummary>();
+    for (const s of sessionSummary ?? []) m.set(s.bead_id, s);
+    return m;
+  }, [sessionSummary]);
+
   const { data: parentBead } = useQuery({
     queryKey: ["bead", spaceId, search.parent],
     queryFn: () => (search.parent ? api.getBead(spaceId, search.parent) : null),
@@ -334,6 +350,9 @@ function BeadsPage() {
                         ))}
                       </div>
                     )}
+                    {sessionsByBead.get(b.id) && (
+                      <SessionPills s={sessionsByBead.get(b.id)!} />
+                    )}
                     <div className="bead-card-meta">
                       <BeadId id={b.id} />
                       <select
@@ -399,6 +418,38 @@ function BeadsPage() {
             setSearch({ view: "graph", focus: id, parent: undefined, bead: undefined })
           }
         />
+      )}
+    </div>
+  );
+}
+
+function SessionPills({ s }: { s: BeadSessionSummary }) {
+  if (!s.running && !s.finished && !s.errored) return null;
+  return (
+    <div className="bead-card-sessions">
+      {s.running > 0 && (
+        <span
+          className="pill session-pill session-running"
+          title={`${s.running} running session${s.running === 1 ? "" : "s"}`}
+        >
+          <span className="session-dot" /> {s.running}
+        </span>
+      )}
+      {s.finished > 0 && (
+        <span
+          className="pill session-pill session-finished"
+          title={`${s.finished} finished session${s.finished === 1 ? "" : "s"}`}
+        >
+          ✓ {s.finished}
+        </span>
+      )}
+      {s.errored > 0 && (
+        <span
+          className="pill session-pill session-errored"
+          title={`${s.errored} errored session${s.errored === 1 ? "" : "s"}`}
+        >
+          ! {s.errored}
+        </span>
       )}
     </div>
   );
