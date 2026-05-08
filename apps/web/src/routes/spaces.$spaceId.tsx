@@ -24,6 +24,7 @@ interface Search {
   focus?: string;
   q?: string;
   isolate?: boolean;
+  order?: boolean;
 }
 
 export const Route = createFileRoute("/spaces/$spaceId")({
@@ -41,6 +42,7 @@ export const Route = createFileRoute("/spaces/$spaceId")({
     focus: typeof raw.focus === "string" ? raw.focus : undefined,
     q: typeof raw.q === "string" && raw.q ? raw.q : undefined,
     isolate: raw.isolate === true || raw.isolate === "1",
+    order: raw.order === true || raw.order === "1",
   }),
 });
 
@@ -286,6 +288,8 @@ function BeadsPage() {
             isolate={search.isolate ?? false}
             onIsolateChange={(v) => setSearch({ isolate: v || undefined })}
             hasSelection={!!(search.bead ?? search.focus)}
+            order={search.order ?? false}
+            onOrderChange={(v) => setSearch({ order: v || undefined })}
           />
           <BeadGraph
             spaceId={spaceId}
@@ -294,6 +298,7 @@ function BeadsPage() {
             focusId={search.focus}
             selectedId={search.bead ?? search.focus}
             isolateSelection={search.isolate ?? false}
+            orderMode={search.order ?? false}
             onSelectBead={(id) => setSearch({ bead: id })}
           />
         </>
@@ -469,12 +474,16 @@ function GraphEdgeToggles({
   isolate,
   onIsolateChange,
   hasSelection,
+  order,
+  onOrderChange,
 }: {
   hidden: ReadonlySet<BeadDepType>;
   onChange: (next: ReadonlySet<BeadDepType>) => void;
   isolate: boolean;
   onIsolateChange: (v: boolean) => void;
   hasSelection: boolean;
+  order: boolean;
+  onOrderChange: (v: boolean) => void;
 }) {
   const toggle = (t: BeadDepType) => {
     const next = new Set(hidden);
@@ -506,6 +515,17 @@ function GraphEdgeToggles({
           onChange={(e) => onIsolateChange(e.target.checked)}
         />
         isolate selection
+      </label>
+      <label
+        style={{ fontSize: "0.8rem" }}
+        title="Layer beads left-to-right by blocks-chain depth. Column 0 = ready to start."
+      >
+        <input
+          type="checkbox"
+          checked={order}
+          onChange={(e) => onOrderChange(e.target.checked)}
+        />
+        order by blockers
       </label>
     </div>
   );

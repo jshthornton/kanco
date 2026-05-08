@@ -26,6 +26,11 @@ interface Props {
   focusId?: string;
   selectedId?: string;
   isolateSelection?: boolean;
+  /**
+   * Layered topological order by `blocks` edges. Level 0 = ready (no open
+   * blockers). Other edge types still render but don't affect layout.
+   */
+  orderMode?: boolean;
   onSelectBead?: (id: string) => void;
 }
 
@@ -40,10 +45,11 @@ const EDGE_STYLE: Record<BeadDepType, { stroke: string; strokeDasharray?: string
   "discovered-from": { stroke: "#f59e0b", strokeDasharray: "2 4" },
 };
 
-type BeadNodeData = Record<string, unknown> & { bead: BeadSummary };
+type BeadNodeData = Record<string, unknown> & { bead: BeadSummary; ready?: boolean };
 
 function BeadNodeCard({ data }: NodeProps<Node<BeadNodeData>>) {
   const b = data.bead as BeadSummary;
+  const ready = !!data.ready;
   const handleStyle = { width: 6, height: 6, background: "transparent", border: "none" };
   return (
     <div
@@ -57,6 +63,7 @@ function BeadNodeCard({ data }: NodeProps<Node<BeadNodeData>>) {
         height: NODE_HEIGHT,
         textAlign: "center",
         boxSizing: "border-box",
+        position: "relative",
       }}
     >
       <Handle id="t-tgt" type="target" position={Position.Top} style={handleStyle} />
@@ -67,6 +74,25 @@ function BeadNodeCard({ data }: NodeProps<Node<BeadNodeData>>) {
       <Handle id="l-src" type="source" position={Position.Left} style={handleStyle} />
       <Handle id="r-tgt" type="target" position={Position.Right} style={handleStyle} />
       <Handle id="r-src" type="source" position={Position.Right} style={handleStyle} />
+      {ready && (
+        <span
+          title="No open blockers — ready to start"
+          style={{
+            position: "absolute",
+            top: -8,
+            right: -8,
+            background: "#16a34a",
+            color: "white",
+            fontSize: 9,
+            fontWeight: 700,
+            padding: "1px 5px",
+            borderRadius: 8,
+            letterSpacing: 0.4,
+          }}
+        >
+          READY
+        </span>
+      )}
       <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 4 }}>{b.title}</div>
       <div style={{ fontSize: 10, opacity: 0.7 }}>
         <BeadId id={b.id} />
@@ -123,6 +149,7 @@ export function BeadGraph({
   focusId,
   selectedId,
   isolateSelection,
+  orderMode,
   onSelectBead,
 }: Props) {
   const rf = useRef<ReactFlowInstance | null>(null);
@@ -134,11 +161,63 @@ export function BeadGraph({
 
   const laid = useMemo(() => {
     if (!data) return { nodes: [] as Node[], edges: [] as Edge[] };
+    const beadById = new Map<string, BeadSummary>();
+    for (const b of data.nodes) beadById.set(b.id, b);
+
+    // Readiness: open bead with no open `blocks` predecessor (i.e. all
+    // beads it depends on are closed). Edges are "from depends on to".
+    const openBlockerIn = new Map<string, number>();
+    for (const e of data.edges) {
+      if (e.type !== "blocks") continue;
+      const target = beadById.get(e.to);
+      if (target && target.status !== "closed") {
+        openBlockerIn.set(e.from, (openBlockerIn.get(e.from) ?? 0) + 1);
+      }
+    }
+    const ready = (b: BeadSummary) =>
+      b.status !== "closed" && (openBlockerIn.get(b.id) ?? 0) === 0;
+
+    // Order-mode level: longest blocks-chain depth (using only open beads
+    // for the rank computation; closed beads collapse to level 0 visually).
+    const level = new Map<string, number>();
+    if (orderMode) {
+      const blocksOut = new Map<string, string[]>(); // to -> [from]
+      for (const e of data.edges) {
+        if (e.type !== "blocks") continue;
+        if (!blocksOut.has(e.to)) blocksOut.set(e.to, []);
+        blocksOut.get(e.to)!.push(e.from);
+      }
+      const visit = (id: string, seen: Set<string>): number => {
+        if (level.has(id)) return level.get(id)!;
+        if (seen.has(id)) return 0;
+        seen.add(id);
+        const b = beadById.get(id);
+        if (!b || b.status === "closed") {
+          level.set(id, 0);
+          return 0;
+        }
+        // depth = 1 + max over predecessors (beads that block this bead)
+        const predecessors = data.edges
+          .filter((e) => e.type === "blocks" && e.from === id)
+          .map((e) => e.to)
+          .filter((p) => {
+            const pb = beadById.get(p);
+            return pb && pb.status !== "closed";
+          });
+        const lv = predecessors.length === 0
+          ? 0
+          : 1 + Math.max(...predecessors.map((p) => visit(p, seen)));
+        level.set(id, lv);
+        return lv;
+      };
+      for (const b of data.nodes) visit(b.id, new Set());
+    }
+
     const baseNodes: Node[] = data.nodes.map((b) => ({
       id: b.id,
       type: "bead",
       position: { x: 0, y: 0 },
-      data: { bead: b },
+      data: { bead: b, ready: ready(b) },
     }));
     const visibleEdges = hiddenEdgeTypes
       ? data.edges.filter((e) => !hiddenEdgeTypes.has(e.type))
@@ -152,10 +231,36 @@ export function BeadGraph({
         else if (e.to === focusNode) related.add(e.from);
       }
     }
-    // Server convention: e.to is the rank-ancestor (parent / blocker / tracked
-    // bead), e.from is the dependent. Keep e.to above e.from in dagre.
-    const rankPairs = visibleEdges.map((e) => ({ above: e.to, below: e.from }));
-    const positions = runDagre(baseNodes, rankPairs);
+    let positions: Map<string, { x: number; y: number }>;
+    if (orderMode) {
+      // LR layered layout: x = level * step, y stacked within level.
+      const colStep = NODE_WIDTH + 120;
+      const rowStep = NODE_HEIGHT + 30;
+      const buckets = new Map<number, BeadSummary[]>();
+      for (const b of data.nodes) {
+        const lv = level.get(b.id) ?? 0;
+        if (!buckets.has(lv)) buckets.set(lv, []);
+        buckets.get(lv)!.push(b);
+      }
+      for (const list of buckets.values()) {
+        list.sort((a, b) => {
+          // ready first within each column
+          const ar = ready(a) ? 0 : 1;
+          const br = ready(b) ? 0 : 1;
+          if (ar !== br) return ar - br;
+          return a.id.localeCompare(b.id);
+        });
+      }
+      positions = new Map();
+      for (const [lv, list] of buckets) {
+        list.forEach((b, i) => positions!.set(b.id, { x: lv * colStep, y: i * rowStep }));
+      }
+    } else {
+      // Server convention: e.to is the rank-ancestor (parent / blocker / tracked
+      // bead), e.from is the dependent. Keep e.to above e.from in dagre.
+      const rankPairs = visibleEdges.map((e) => ({ above: e.to, below: e.from }));
+      positions = runDagre(baseNodes, rankPairs);
+    }
     const nodes: Node[] = baseNodes.map((n) => ({
       ...n,
       position: positions.get(n.id) ?? { x: 0, y: 0 },
@@ -187,7 +292,7 @@ export function BeadGraph({
       };
     });
     return { nodes, edges };
-  }, [data, hiddenEdgeTypes, selectedId, isolateSelection]);
+  }, [data, hiddenEdgeTypes, selectedId, isolateSelection, orderMode]);
 
   useEffect(() => {
     if (!focusId || !rf.current) return;
