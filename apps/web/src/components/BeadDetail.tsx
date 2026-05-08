@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { toast } from "sonner";
 import { api } from "../api";
 import type { AgentKind, Bead, BeadShowEdge, BeadStatus } from "@kanco/shared";
 import { BOARD_STATUSES, STATUS_LABEL } from "../lib/beads-columns";
@@ -31,7 +32,17 @@ export function BeadDetail({
   const update = useMutation({
     mutationFn: (patch: { title?: string; description?: string | null; status?: BeadStatus }) =>
       api.updateBead(spaceId, beadId, patch),
-    onSuccess: () => {
+    onMutate: (patch) => ({
+      toastId: toast.loading(patch.status ? `Setting status to ${STATUS_LABEL[patch.status]}…` : "Saving…"),
+    }),
+    onError: (err, _v, ctx) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`Update failed: ${msg}`, { id: ctx?.toastId });
+    },
+    onSuccess: (_d, patch, ctx) => {
+      toast.success(patch.status ? `Status: ${STATUS_LABEL[patch.status]}` : "Saved", { id: ctx?.toastId });
+    },
+    onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["bead", spaceId, beadId] });
       void qc.invalidateQueries({ queryKey: ["beads", spaceId] });
       void qc.invalidateQueries({ queryKey: ["graph", spaceId] });
@@ -40,7 +51,14 @@ export function BeadDetail({
 
   const close = useMutation({
     mutationFn: () => api.closeBead(spaceId, beadId),
-    onSuccess: () => {
+    onMutate: () => ({ toastId: toast.loading("Closing bead…") }),
+    onError: (err, _v, ctx) => {
+      toast.error(`Close failed: ${err instanceof Error ? err.message : String(err)}`, { id: ctx?.toastId });
+    },
+    onSuccess: (_d, _v, ctx) => {
+      toast.success("Bead closed", { id: ctx?.toastId });
+    },
+    onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["bead", spaceId, beadId] });
       void qc.invalidateQueries({ queryKey: ["beads", spaceId] });
     },
@@ -48,11 +66,25 @@ export function BeadDetail({
 
   const resolveGate = useMutation({
     mutationFn: (gateId: string) => api.resolveGate(spaceId, gateId),
-    onSuccess: () => {
+    onMutate: () => ({ toastId: toast.loading("Resolving gate…") }),
+    onError: (err, _v, ctx) => {
+      toast.error(`Resolve failed: ${err instanceof Error ? err.message : String(err)}`, { id: ctx?.toastId });
+    },
+    onSuccess: (_d, _v, ctx) => {
+      toast.success("Gate resolved", { id: ctx?.toastId });
+    },
+    onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["bead", spaceId, beadId] });
       void qc.invalidateQueries({ queryKey: ["beads", spaceId] });
     },
   });
+
+  const { data: repos } = useQuery({
+    queryKey: ["space-repos", spaceId],
+    queryFn: () => api.listSpaceRepos(spaceId),
+    staleTime: 60_000,
+  });
+  const prRepo = repos && repos.length > 0 ? repos[0] : null;
 
   const { data: sessions } = useQuery({
     queryKey: ["bead-sessions", spaceId, beadId],
@@ -74,18 +106,31 @@ export function BeadDetail({
   const addGate = useMutation({
     mutationFn: () =>
       api.addBeadGate(spaceId, beadId, { type: "gh:pr", await_id: prNumber }),
-    onSuccess: () => {
+    onMutate: () => ({ toastId: toast.loading(`Adding PR #${prNumber} gate…`) }),
+    onError: (err, _v, ctx) => {
+      toast.error(`Add gate failed: ${err instanceof Error ? err.message : String(err)}`, { id: ctx?.toastId });
+    },
+    onSuccess: (_d, _v, ctx) => {
+      toast.success("Gate added", { id: ctx?.toastId });
       setPrNumber("");
       setAddPrOpen(false);
+    },
+    onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["bead", spaceId, beadId] });
     },
   });
 
   if (isLoading || !bead) {
     return (
-      <aside className="bead-detail">
+      <aside className="bead-detail" aria-busy="true">
         <button className="close-btn" onClick={onClose}>×</button>
-        <p>Loading…</p>
+        <div className="skeleton skeleton-title" />
+        <div className="skeleton skeleton-line skeleton-short" />
+        <div className="skeleton skeleton-block" />
+        <div className="skeleton skeleton-line" />
+        <div className="skeleton skeleton-line" />
+        <div className="skeleton skeleton-line skeleton-short" />
+        <div className="skeleton skeleton-block" />
       </aside>
     );
   }
@@ -168,6 +213,7 @@ export function BeadDetail({
             </option>
           ))}
         </select>
+        {update.isPending && <span className="inline-spinner" aria-label="saving" />}
       </label>
 
       {bead.description && (
@@ -181,11 +227,28 @@ export function BeadDetail({
         <h3>Gates</h3>
         {gates.length === 0 && <p className="muted">No gates.</p>}
         <ul>
-          {gates.map((g) => (
+          {gates.map((g) => {
+            const prHref =
+              g.await_type === "gh:pr" && g.await_id && prRepo
+                ? `https://github.com/${prRepo.owner}/${prRepo.repo}/pull/${g.await_id}`
+                : null;
+            return (
             <li key={g.id}>
               <strong>{g.await_type}</strong>
-              {g.await_id && <> ({g.await_id})</>} —{" "}
-              <span className={`gate-status gate-${g.status}`}>{g.status}</span>
+              {g.await_id && (
+                <>
+                  {" "}(
+                  {prHref ? (
+                    <a href={prHref} target="_blank" rel="noreferrer noopener">
+                      #{g.await_id}
+                    </a>
+                  ) : (
+                    g.await_id
+                  )}
+                  )
+                </>
+              )}{" "}
+              — <span className={`gate-status gate-${g.status}`}>{g.status}</span>
               {g.status === "open" && (
                 <button
                   onClick={() => resolveGate.mutate(g.id)}
@@ -196,7 +259,8 @@ export function BeadDetail({
                 </button>
               )}
             </li>
-          ))}
+            );
+          })}
         </ul>
         {addPrOpen ? (
           <form

@@ -1,10 +1,32 @@
 import type { DB } from "../db/client.js";
 import { nanoid } from "nanoid";
+import { execFileSync } from "node:child_process";
 import { seedDefaultColumnsForSpace } from "../db/migrations.js";
 import type { Space, Column } from "@kanco/shared";
 import { emitChange } from "../events.js";
 import { getBeadsClient } from "./beads/client.js";
 import { schedulePush } from "./beads/auto-push.js";
+
+function parseGithubRemote(url: string): { owner: string; repo: string } | null {
+  // git@github.com:owner/repo(.git)?  OR  https://github.com/owner/repo(.git)?
+  const ssh = url.match(/^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/);
+  if (ssh) return { owner: ssh[1]!, repo: ssh[2]! };
+  const https = url.match(/^https?:\/\/(?:[^@]+@)?github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/);
+  if (https) return { owner: https[1]!, repo: https[2]! };
+  return null;
+}
+
+function gitRemoteRepo(repoRoot: string): { owner: string; repo: string } | null {
+  try {
+    const url = execFileSync("git", ["-C", repoRoot, "remote", "get-url", "origin"], {
+      encoding: "utf8",
+      timeout: 5000,
+    }).trim();
+    return parseGithubRemote(url);
+  } catch {
+    return null;
+  }
+}
 
 function slugify(name: string): string {
   const base = name
@@ -94,6 +116,24 @@ export function updateSpace(
   ).run(next.name, next.repo_root, next.dolt_remote_url ?? null, id);
   emitChange({ kind: "space.updated", space_id: id });
   return next;
+}
+
+export interface SpaceRepo {
+  owner: string;
+  repo: string;
+}
+
+export function listSpaceRepos(db: DB, space_id: string): SpaceRepo[] {
+  const rows = db
+    .prepare(`SELECT owner, repo FROM space_repos WHERE space_id = ? ORDER BY owner, repo`)
+    .all(space_id) as SpaceRepo[];
+  if (rows.length > 0) return rows;
+  // Fallback: derive from the repo's git origin so the UI can build PR URLs
+  // even if the user never whitelisted a repo for the PR poller.
+  const space = getSpace(db, space_id);
+  if (!space?.repo_root) return [];
+  const derived = gitRemoteRepo(space.repo_root);
+  return derived ? [derived] : [];
 }
 
 export function listColumns(db: DB, space_id: string): Column[] {

@@ -246,8 +246,13 @@ export class BeadsClient {
     });
   }
 
-  async close(id: string): Promise<void> {
-    await this.write(() => runBd(["close", id, "--json"], { cwd: this.repoPath }));
+  async close(id: string, opts: { force?: boolean; reason?: string } = {}): Promise<void> {
+    await this.write(() => {
+      const args = ["close", id, "--json"];
+      if (opts.force) args.push("--force");
+      if (opts.reason) args.push("--reason", opts.reason);
+      return runBd(args, { cwd: this.repoPath });
+    });
   }
 
   async reopen(id: string): Promise<void> {

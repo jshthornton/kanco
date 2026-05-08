@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { api } from "../api";
 import type { BeadDepType, BeadStatus, BeadSummary } from "@kanco/shared";
 import { BOARD_STATUSES, STATUS_COLOR, STATUS_LABEL } from "../lib/beads-columns";
@@ -17,6 +18,7 @@ interface Search {
   closed?: boolean;
   focus?: string;
   q?: string;
+  isolate?: boolean;
 }
 
 export const Route = createFileRoute("/spaces/$spaceId")({
@@ -33,6 +35,7 @@ export const Route = createFileRoute("/spaces/$spaceId")({
     closed: raw.closed === true || raw.closed === "1",
     focus: typeof raw.focus === "string" ? raw.focus : undefined,
     q: typeof raw.q === "string" && raw.q ? raw.q : undefined,
+    isolate: raw.isolate === true || raw.isolate === "1",
   }),
 });
 
@@ -104,15 +107,31 @@ function BeadsPage() {
   const setStatus = useMutation({
     mutationFn: ({ id, status }: { id: string; status: BeadStatus }) =>
       api.updateBead(spaceId, id, { status }),
-    onSuccess: () => {
+    onMutate: async ({ id, status }) => {
+      const beadsKey = ["beads", spaceId, search.label, search.parent, search.q];
+      await qc.cancelQueries({ queryKey: ["beads", spaceId] });
+      const prev = qc.getQueriesData<BeadSummary[]>({ queryKey: ["beads", spaceId] });
+      for (const [key, data] of prev) {
+        if (!data) continue;
+        qc.setQueryData<BeadSummary[]>(
+          key,
+          data.map((b) => (b.id === id ? { ...b, status } : b)),
+        );
+      }
+      const toastId = toast.loading(`Moving to ${STATUS_LABEL[status]}…`);
+      return { prev, toastId, beadsKey };
+    },
+    onError: (err, _vars, ctx) => {
+      if (ctx?.prev) for (const [key, data] of ctx.prev) qc.setQueryData(key, data);
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`Status update failed: ${msg}`, { id: ctx?.toastId });
+    },
+    onSuccess: (_data, vars, ctx) => {
+      toast.success(`Moved to ${STATUS_LABEL[vars.status]}`, { id: ctx?.toastId });
+    },
+    onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["beads", spaceId] });
       void qc.invalidateQueries({ queryKey: ["graph", spaceId] });
-    },
-    onError: (err) => {
-      console.error("status update failed", err);
-      window.alert(
-        `Status update failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
     },
   });
 
@@ -248,12 +267,17 @@ function BeadsPage() {
           <GraphEdgeToggles
             hidden={hiddenEdges}
             onChange={setHiddenEdges}
+            isolate={search.isolate ?? false}
+            onIsolateChange={(v) => setSearch({ isolate: v || undefined })}
+            hasSelection={!!(search.bead ?? search.focus)}
           />
           <BeadGraph
             spaceId={spaceId}
             filter={{ label: search.label, parent: search.parent, q: search.q }}
             hiddenEdgeTypes={hiddenEdges}
             focusId={search.focus}
+            selectedId={search.bead ?? search.focus}
+            isolateSelection={search.isolate ?? false}
             onSelectBead={(id) => setSearch({ bead: id })}
           />
         </>
@@ -391,9 +415,15 @@ const ALL_DEP_TYPES: BeadDepType[] = [
 function GraphEdgeToggles({
   hidden,
   onChange,
+  isolate,
+  onIsolateChange,
+  hasSelection,
 }: {
   hidden: ReadonlySet<BeadDepType>;
   onChange: (next: ReadonlySet<BeadDepType>) => void;
+  isolate: boolean;
+  onIsolateChange: (v: boolean) => void;
+  hasSelection: boolean;
 }) {
   const toggle = (t: BeadDepType) => {
     const next = new Set(hidden);
@@ -414,6 +444,18 @@ function GraphEdgeToggles({
           {t}
         </label>
       ))}
+      <label
+        style={{ fontSize: "0.8rem", opacity: hasSelection ? 1 : 0.5 }}
+        title={hasSelection ? "Dim everything not connected to selected bead" : "Select a bead first"}
+      >
+        <input
+          type="checkbox"
+          checked={isolate}
+          disabled={!hasSelection}
+          onChange={(e) => onIsolateChange(e.target.checked)}
+        />
+        isolate selection
+      </label>
     </div>
   );
 }

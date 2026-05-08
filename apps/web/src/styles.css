@@ -945,3 +945,43 @@ textarea:focus {
 .bead-id-copy.copied::after {
   content: " ✓";
 }
+
+/* skeleton loaders */
+@keyframes skeleton-pulse {
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+.skeleton {
+  display: block;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 0%,
+    rgba(255, 255, 255, 0.10) 50%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  background-size: 200px 100%;
+  background-repeat: no-repeat;
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+  margin: 0.5rem 0;
+}
+.skeleton-title { height: 1.5rem; width: 70%; }
+.skeleton-line { height: 0.75rem; width: 100%; }
+.skeleton-short { width: 40%; }
+.skeleton-block { height: 4rem; width: 100%; }
+
+/* inline saving spinner */
+@keyframes inline-spin {
+  to { transform: rotate(360deg); }
+}
+.inline-spinner {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-left: 0.5rem;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-top-color: var(--accent, #60a5fa);
+  border-radius: 50%;
+  animation: inline-spin 0.7s linear infinite;
+  vertical-align: middle;
+}

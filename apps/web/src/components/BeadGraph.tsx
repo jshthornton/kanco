@@ -24,6 +24,8 @@ interface Props {
   filter?: { label?: string | string[]; parent?: string; q?: string };
   hiddenEdgeTypes?: ReadonlySet<BeadDepType>;
   focusId?: string;
+  selectedId?: string;
+  isolateSelection?: boolean;
   onSelectBead?: (id: string) => void;
 }
 
@@ -114,7 +116,15 @@ function runDagre(
   return out;
 }
 
-export function BeadGraph({ spaceId, filter, hiddenEdgeTypes, focusId, onSelectBead }: Props) {
+export function BeadGraph({
+  spaceId,
+  filter,
+  hiddenEdgeTypes,
+  focusId,
+  selectedId,
+  isolateSelection,
+  onSelectBead,
+}: Props) {
   const rf = useRef<ReactFlowInstance | null>(null);
   const { data, error, isLoading } = useQuery({
     queryKey: ["graph", spaceId, filter?.label, filter?.parent, filter?.q],
@@ -133,6 +143,15 @@ export function BeadGraph({ spaceId, filter, hiddenEdgeTypes, focusId, onSelectB
     const visibleEdges = hiddenEdgeTypes
       ? data.edges.filter((e) => !hiddenEdgeTypes.has(e.type))
       : data.edges;
+    const focusNode = isolateSelection ? selectedId : undefined;
+    const related = new Set<string>();
+    if (focusNode) {
+      related.add(focusNode);
+      for (const e of visibleEdges) {
+        if (e.from === focusNode) related.add(e.to);
+        else if (e.to === focusNode) related.add(e.from);
+      }
+    }
     // Server convention: e.to is the rank-ancestor (parent / blocker / tracked
     // bead), e.from is the dependent. Keep e.to above e.from in dagre.
     const rankPairs = visibleEdges.map((e) => ({ above: e.to, below: e.from }));
@@ -140,6 +159,7 @@ export function BeadGraph({ spaceId, filter, hiddenEdgeTypes, focusId, onSelectB
     const nodes: Node[] = baseNodes.map((n) => ({
       ...n,
       position: positions.get(n.id) ?? { x: 0, y: 0 },
+      style: focusNode && !related.has(n.id) ? { opacity: 0.15 } : undefined,
     }));
     // For parent-child edges, swap source/target so the line exits the bottom
     // of the parent node and enters the top of the child node under TB layout.
@@ -150,21 +170,24 @@ export function BeadGraph({ spaceId, filter, hiddenEdgeTypes, focusId, onSelectB
       const srcPos = positions.get(source) ?? { x: 0, y: 0 };
       const tgtPos = positions.get(target) ?? { x: 0, y: 0 };
       const { sourceHandle, targetHandle } = pickHandles(srcPos, tgtPos, e.type);
+      const touches = focusNode ? e.from === focusNode || e.to === focusNode : true;
+      const dim = focusNode && !touches;
+      const baseStyle = EDGE_STYLE[e.type] ?? { stroke: "#9ca3af" };
       return {
         id: `${e.from}-${e.to}-${e.type}-${i}`,
         source,
         target,
         sourceHandle,
         targetHandle,
-        animated: e.type === "blocks",
-        style: EDGE_STYLE[e.type] ?? { stroke: "#9ca3af" },
+        animated: e.type === "blocks" && !dim,
+        style: dim ? { ...baseStyle, opacity: 0.08 } : baseStyle,
         label: e.type,
-        labelStyle: { fontSize: 10, fill: "var(--muted)" },
-        labelBgStyle: { fill: "var(--panel)" },
+        labelStyle: { fontSize: 10, fill: "var(--muted)", opacity: dim ? 0.15 : 1 },
+        labelBgStyle: { fill: "var(--panel)", opacity: dim ? 0.15 : 1 },
       };
     });
     return { nodes, edges };
-  }, [data, hiddenEdgeTypes]);
+  }, [data, hiddenEdgeTypes, selectedId, isolateSelection]);
 
   useEffect(() => {
     if (!focusId || !rf.current) return;
