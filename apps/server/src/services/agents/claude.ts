@@ -9,8 +9,7 @@ export const claudeAdapter: AgentAdapter = {
         "-p",
         "--session-id",
         sessionId,
-        "--permission-mode",
-        "bypassPermissions",
+        "--dangerously-skip-permissions",
         prompt,
       ],
     };
