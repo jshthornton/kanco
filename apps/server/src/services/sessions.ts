@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, openSync, statSync, readSync, closeSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, statSync, readSync, closeSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import { nanoid } from "nanoid";
@@ -151,6 +151,8 @@ export function startSession(db: DB, opts: StartSessionOpts): AgentSession {
     }
     cwd = worktree_path;
   }
+
+  if (opts.agent === "claude") preseedClaudeSettings(cwd);
 
   const logFd = openSync(log_path, "a");
   const { command, args } = adapter.buildSpawn(prompt, agentSessionId);
@@ -394,6 +396,26 @@ export interface StartBeadSessionOpts {
   worktree: boolean;
 }
 
+/**
+ * Auto-enable any .mcp.json servers in the worktree so headless `claude -p`
+ * doesn't hang on the "N new MCP servers found" interactive picker. Without
+ * this, every fresh worktree triggers the prompt and stalls on stdin.
+ */
+function preseedClaudeSettings(cwd: string): void {
+  try {
+    const dir = join(cwd, ".claude");
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, "settings.local.json");
+    if (existsSync(file)) return;
+    writeFileSync(
+      file,
+      JSON.stringify({ enableAllProjectMcpServers: true }, null, 2),
+    );
+  } catch (err) {
+    console.error("[sessions] failed to preseed claude settings:", err);
+  }
+}
+
 function buildBeadPrompt(beadId: string): string {
   return [
     `You are working on bead **${beadId}** in this repository.`,
@@ -461,6 +483,8 @@ export function startBeadSession(db: DB, opts: StartBeadSessionOpts): AgentSessi
     }
     cwd = worktree_path;
   }
+
+  if (opts.agent === "claude") preseedClaudeSettings(cwd);
 
   const logFd = openSync(log_path, "a");
   const { command, args } = adapter.buildSpawn(prompt, agentSessionId);
