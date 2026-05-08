@@ -89,9 +89,14 @@ export class BeadsClient {
   /** Run `bd init --stealth --non-interactive` if not yet initialized. */
   async ensureInitialized(): Promise<void> {
     if (this.isInitialized()) return;
-    await spaceQueue(this.spaceId).add(() =>
-      runBd(["init", "--stealth", "--non-interactive"], { cwd: this.repoPath, timeoutMs: 60_000 }),
-    );
+    await spaceQueue(this.spaceId).add(async () => {
+      // Re-check inside queue: a concurrent caller may have already initialized.
+      if (this.isInitialized()) return;
+      await runBd(["init", "--stealth", "--non-interactive"], {
+        cwd: this.repoPath,
+        timeoutMs: 60_000,
+      });
+    });
   }
 
   // ---- reads ----

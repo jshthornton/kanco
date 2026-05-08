@@ -3,6 +3,7 @@ import type { GqlClient } from "../../github/gql.js";
 import type { Bead, Space } from "@kanco/shared";
 import { getBeadsClient } from "./client.js";
 import { schedulePush } from "./auto-push.js";
+import { listSpaceRepos } from "../spaces.js";
 import { emitChange } from "../../events.js";
 
 interface RepoCoords {
@@ -10,12 +11,14 @@ interface RepoCoords {
   repo: string;
 }
 
-/** Resolve owner/repo for a space. Uses first whitelisted repo. */
-function repoForSpace(db: DB, space_id: string): RepoCoords | null {
-  const row = db
-    .prepare(`SELECT owner, repo FROM space_repos WHERE space_id = ? LIMIT 1`)
-    .get(space_id) as RepoCoords | undefined;
-  return row ?? null;
+/**
+ * Resolve owner/repo for a space. Uses first whitelisted repo, falling back to
+ * the parsed git origin (matches `listSpaceRepos` behaviour) so spaces without
+ * a `space_repos` row still get PR sync.
+ */
+async function repoForSpace(db: DB, space_id: string): Promise<RepoCoords | null> {
+  const repos = await listSpaceRepos(db, space_id);
+  return repos[0] ?? null;
 }
 
 interface PendingGate {
@@ -75,7 +78,7 @@ export async function syncSpacePrGates(
   space: Space,
 ): Promise<PrSyncResult> {
   if (!space.repo_root) return { space_id: space.id, checked: 0, resolved: 0, errors: 0 };
-  const coords = repoForSpace(db, space.id);
+  const coords = await repoForSpace(db, space.id);
   const result: PrSyncResult = { space_id: space.id, checked: 0, resolved: 0, errors: 0 };
   if (!coords) return result;
 

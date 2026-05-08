@@ -1,7 +1,10 @@
 import type { DB } from "../db/client.js";
 import { nanoid } from "nanoid";
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { seedDefaultColumnsForSpace } from "../db/migrations.js";
+
+const execFileP = promisify(execFile);
 import type { Space, Column } from "@kanco/shared";
 import { emitChange } from "../events.js";
 import { getBeadsClient } from "./beads/client.js";
@@ -16,13 +19,16 @@ function parseGithubRemote(url: string): { owner: string; repo: string } | null 
   return null;
 }
 
-function gitRemoteRepo(repoRoot: string): { owner: string; repo: string } | null {
+async function gitRemoteRepo(
+  repoRoot: string,
+): Promise<{ owner: string; repo: string } | null> {
   try {
-    const url = execFileSync("git", ["-C", repoRoot, "remote", "get-url", "origin"], {
-      encoding: "utf8",
-      timeout: 5000,
-    }).trim();
-    return parseGithubRemote(url);
+    const { stdout } = await execFileP(
+      "git",
+      ["-C", repoRoot, "remote", "get-url", "origin"],
+      { encoding: "utf8", timeout: 5000 },
+    );
+    return parseGithubRemote(stdout.trim());
   } catch {
     return null;
   }
@@ -123,7 +129,7 @@ export interface SpaceRepo {
   repo: string;
 }
 
-export function listSpaceRepos(db: DB, space_id: string): SpaceRepo[] {
+export async function listSpaceRepos(db: DB, space_id: string): Promise<SpaceRepo[]> {
   const rows = db
     .prepare(`SELECT owner, repo FROM space_repos WHERE space_id = ? ORDER BY owner, repo`)
     .all(space_id) as SpaceRepo[];
@@ -132,7 +138,7 @@ export function listSpaceRepos(db: DB, space_id: string): SpaceRepo[] {
   // even if the user never whitelisted a repo for the PR poller.
   const space = getSpace(db, space_id);
   if (!space?.repo_root) return [];
-  const derived = gitRemoteRepo(space.repo_root);
+  const derived = await gitRemoteRepo(space.repo_root);
   return derived ? [derived] : [];
 }
 

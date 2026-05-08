@@ -24,9 +24,10 @@ export function BeadDetail({
   onShowInGraph,
 }: Props) {
   const qc = useQueryClient();
-  const { data: bead, isLoading } = useQuery({
+  const { data: bead, isLoading, error } = useQuery({
     queryKey: ["bead", spaceId, beadId],
     queryFn: () => api.getBead(spaceId, beadId),
+    retry: 1,
   });
 
   const update = useMutation({
@@ -84,7 +85,9 @@ export function BeadDetail({
     queryFn: () => api.listSpaceRepos(spaceId),
     staleTime: 60_000,
   });
-  const prRepo = repos && repos.length > 0 ? repos[0] : null;
+  // Only build PR links when exactly one repo is associated with the space —
+  // otherwise we'd guess wrong on multi-repo spaces.
+  const prRepo = repos?.length === 1 ? repos[0] : null;
 
   const { data: sessions } = useQuery({
     queryKey: ["bead-sessions", spaceId, beadId],
@@ -119,6 +122,24 @@ export function BeadDetail({
       void qc.invalidateQueries({ queryKey: ["bead", spaceId, beadId] });
     },
   });
+
+  if (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return (
+      <aside className="bead-detail">
+        <button className="close-btn" onClick={onClose}>×</button>
+        <h2>Failed to load bead</h2>
+        <p className="error">{msg}</p>
+        <button
+          onClick={() =>
+            void qc.invalidateQueries({ queryKey: ["bead", spaceId, beadId] })
+          }
+        >
+          Retry
+        </button>
+      </aside>
+    );
+  }
 
   if (isLoading || !bead) {
     return (

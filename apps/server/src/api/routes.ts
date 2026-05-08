@@ -127,8 +127,8 @@ export function buildApi(deps: ApiDeps): Hono {
 
   api.get("/spaces/:id/columns", (c) => c.json(listBoardColumns(deps.db, c.req.param("id"))));
 
-  api.get("/spaces/:id/repos", (c) =>
-    c.json(listSpaceRepos(deps.db, c.req.param("id"))),
+  api.get("/spaces/:id/repos", async (c) =>
+    c.json(await listSpaceRepos(deps.db, c.req.param("id"))),
   );
 
   api.get("/spaces/:id/tickets", (c) => {
