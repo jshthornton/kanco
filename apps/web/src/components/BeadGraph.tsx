@@ -47,6 +47,7 @@ const EDGE_STYLE: Record<BeadDepType, { stroke: string; strokeDasharray?: string
   blocks: { stroke: "#ef4444" },
   "parent-child": { stroke: "#8b5cf6", strokeDasharray: "6 4" },
   related: { stroke: "#9ca3af" },
+  "relates-to": { stroke: "#9ca3af" },
   tracks: { stroke: "#3b82f6" },
   "discovered-from": { stroke: "#f59e0b", strokeDasharray: "2 4" },
 };

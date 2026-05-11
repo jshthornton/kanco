@@ -470,6 +470,7 @@ const ALL_DEP_TYPES: BeadDepType[] = [
   "blocks",
   "parent-child",
   "related",
+  "relates-to",
   "tracks",
   "discovered-from",
 ];

@@ -141,7 +141,7 @@ export const api = {
     spaceId: string,
     beadId: string,
     depends_on: string,
-    type: "blocks" | "tracks" | "related" | "parent-child" | "discovered-from" = "blocks",
+    type: "blocks" | "tracks" | "related" | "relates-to" | "parent-child" | "discovered-from" = "blocks",
   ) =>
     http<{ ok: true }>(`/api/spaces/${spaceId}/beads/${beadId}/deps`, {
       method: "POST",
