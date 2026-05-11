@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, openSync, statSync, readSync, closeSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, statSync, readSync, closeSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import { nanoid } from "nanoid";
@@ -152,6 +152,8 @@ export function startSession(db: DB, opts: StartSessionOpts): AgentSession {
     cwd = worktree_path;
   }
 
+  if (opts.agent === "claude") preseedClaudeSettings(cwd);
+
   const logFd = openSync(log_path, "a");
   const { command, args } = adapter.buildSpawn(prompt, agentSessionId);
   const now = Date.now();
@@ -282,6 +284,39 @@ export function listSpaceSessionSummary(db: DB, space_id: string): TicketSession
   }));
 }
 
+export interface BeadSessionSummaryRow {
+  bead_id: string;
+  running: number;
+  finished: number;
+  errored: number;
+}
+
+export function listSpaceBeadSessionSummary(db: DB, space_id: string): BeadSessionSummaryRow[] {
+  const rows = db
+    .prepare(
+      `SELECT
+         bead_id,
+         SUM(CASE WHEN status IN ('running', 'starting') THEN 1 ELSE 0 END) AS running,
+         SUM(CASE WHEN status = 'exited' THEN 1 ELSE 0 END) AS finished,
+         SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS errored
+       FROM agent_sessions
+       WHERE space_id = ? AND bead_id IS NOT NULL
+       GROUP BY bead_id`,
+    )
+    .all(space_id) as Array<{
+    bead_id: string;
+    running: number | null;
+    finished: number | null;
+    errored: number | null;
+  }>;
+  return rows.map((r) => ({
+    bead_id: r.bead_id,
+    running: r.running ?? 0,
+    finished: r.finished ?? 0,
+    errored: r.errored ?? 0,
+  }));
+}
+
 export function listTicketSessions(db: DB, ticket_id: string): AgentSession[] {
   const rows = db
     .prepare(`SELECT * FROM agent_sessions WHERE ticket_id = ? ORDER BY started_at DESC`)
@@ -361,7 +396,28 @@ export interface StartBeadSessionOpts {
   worktree: boolean;
 }
 
-function buildBeadPrompt(beadId: string): string {
+/**
+ * Auto-enable any .mcp.json servers in the worktree so headless `claude -p`
+ * doesn't hang on the "N new MCP servers found" interactive picker. Without
+ * this, every fresh worktree triggers the prompt and stalls on stdin.
+ */
+function preseedClaudeSettings(cwd: string): void {
+  try {
+    const dir = join(cwd, ".claude");
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, "settings.local.json");
+    if (existsSync(file)) return;
+    writeFileSync(
+      file,
+      JSON.stringify({ enableAllProjectMcpServers: true }, null, 2),
+    );
+  } catch (err) {
+    console.error("[sessions] failed to preseed claude settings:", err);
+  }
+}
+
+function buildBeadPrompt(beadId: string, agent: AgentKind, sessionId: string): string {
+  const owner = `kanco-${agent}-${sessionId}`;
   return [
     `You are working on bead **${beadId}** in this repository.`,
     "",
@@ -373,8 +429,20 @@ function buildBeadPrompt(beadId: string): string {
     "",
     "Implement the bead end-to-end: explore the codebase, make the changes,",
     "run type-checks and tests, iterate until done. Commit on the current",
-    "branch when complete. Update the bead status (`bd update <id>",
-    "--status in_progress` / `--status closed`) as you progress.",
+    "branch, push, and open a PR with `gh pr create`.",
+    "",
+    "Status handling:",
+    "- Claim the bead before starting so others can see it's being worked on:",
+    `  \`bd assign ${beadId} ${owner}\`.`,
+    "- Set the bead to `in_progress` when you start work:",
+    `  \`bd update ${beadId} --status in_progress\`.`,
+    "- After opening the PR, attach a gate so kanco can auto-close the bead",
+    "  when the PR merges:",
+    `  \`bd gate create --type gh:pr --blocks ${beadId} --await-id <pr-number>\`.`,
+    "- DO NOT run `bd close` yourself. The PR-sync worker closes the bead when",
+    "  the gh:pr gate resolves on merge. Closing it manually loses that",
+    "  gating signal.",
+    "",
     "Do not stop after only gathering context — carry the work to completion.",
   ].join("\n");
 }
@@ -394,10 +462,10 @@ export function startBeadSession(db: DB, opts: StartBeadSessionOpts): AgentSessi
     throw e;
   }
 
-  const prompt = buildBeadPrompt(opts.bead_id);
   const adapter = getAgent(opts.agent);
 
   const id = nanoid(12);
+  const prompt = buildBeadPrompt(opts.bead_id, opts.agent, id);
   const agentSessionId = randomUUID();
   const baseDir = dataDir();
   const sessionsDir = join(baseDir, "sessions");
@@ -428,6 +496,8 @@ export function startBeadSession(db: DB, opts: StartBeadSessionOpts): AgentSessi
     }
     cwd = worktree_path;
   }
+
+  if (opts.agent === "claude") preseedClaudeSettings(cwd);
 
   const logFd = openSync(log_path, "a");
   const { command, args } = adapter.buildSpawn(prompt, agentSessionId);

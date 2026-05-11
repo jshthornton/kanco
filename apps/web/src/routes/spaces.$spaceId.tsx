@@ -3,7 +3,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../api";
-import type { BeadDepType, BeadStatus, BeadSummary } from "@kanco/shared";
+import type {
+  BeadDepType,
+  BeadSessionSummary,
+  BeadStatus,
+  BeadSummary,
+} from "@kanco/shared";
 import { BOARD_STATUSES, STATUS_COLOR, STATUS_LABEL } from "../lib/beads-columns";
 import { BeadCreateModal, type BeadCreateValues } from "../components/BeadCreateModal";
 import { BeadDetail } from "../components/BeadDetail";
@@ -19,6 +24,7 @@ interface Search {
   focus?: string;
   q?: string;
   isolate?: boolean;
+  order?: "default" | "hierarchy" | "blockers" | "hybrid";
 }
 
 export const Route = createFileRoute("/spaces/$spaceId")({
@@ -36,6 +42,13 @@ export const Route = createFileRoute("/spaces/$spaceId")({
     focus: typeof raw.focus === "string" ? raw.focus : undefined,
     q: typeof raw.q === "string" && raw.q ? raw.q : undefined,
     isolate: raw.isolate === true || raw.isolate === "1",
+    order:
+      raw.order === "hierarchy" ||
+      raw.order === "blockers" ||
+      raw.order === "hybrid" ||
+      raw.order === "default"
+        ? raw.order
+        : undefined,
   }),
 });
 
@@ -75,6 +88,17 @@ function BeadsPage() {
       }),
     refetchInterval: 60_000,
   });
+  const { data: sessionSummary } = useQuery({
+    queryKey: ["bead-session-summary", spaceId],
+    queryFn: () => api.listBeadSessionSummary(spaceId),
+    refetchInterval: 5_000,
+  });
+  const sessionsByBead = useMemo(() => {
+    const m = new Map<string, BeadSessionSummary>();
+    for (const s of sessionSummary ?? []) m.set(s.bead_id, s);
+    return m;
+  }, [sessionSummary]);
+
   const { data: parentBead } = useQuery({
     queryKey: ["bead", spaceId, search.parent],
     queryFn: () => (search.parent ? api.getBead(spaceId, search.parent) : null),
@@ -270,6 +294,8 @@ function BeadsPage() {
             isolate={search.isolate ?? false}
             onIsolateChange={(v) => setSearch({ isolate: v || undefined })}
             hasSelection={!!(search.bead ?? search.focus)}
+            order={search.order ?? "default"}
+            onOrderChange={(v) => setSearch({ order: v === "default" ? undefined : v })}
           />
           <BeadGraph
             spaceId={spaceId}
@@ -278,6 +304,7 @@ function BeadsPage() {
             focusId={search.focus}
             selectedId={search.bead ?? search.focus}
             isolateSelection={search.isolate ?? false}
+            orderMode={search.order ?? "default"}
             onSelectBead={(id) => setSearch({ bead: id })}
           />
         </>
@@ -333,6 +360,9 @@ function BeadsPage() {
                           </span>
                         ))}
                       </div>
+                    )}
+                    {sessionsByBead.get(b.id) && (
+                      <SessionPills s={sessionsByBead.get(b.id)!} />
                     )}
                     <div className="bead-card-meta">
                       <BeadId id={b.id} />
@@ -404,10 +434,43 @@ function BeadsPage() {
   );
 }
 
+function SessionPills({ s }: { s: BeadSessionSummary }) {
+  if (!s.running && !s.finished && !s.errored) return null;
+  return (
+    <div className="bead-card-sessions">
+      {s.running > 0 && (
+        <span
+          className="pill session-pill session-running"
+          title={`${s.running} running session${s.running === 1 ? "" : "s"}`}
+        >
+          <span className="session-dot" /> {s.running}
+        </span>
+      )}
+      {s.finished > 0 && (
+        <span
+          className="pill session-pill session-finished"
+          title={`${s.finished} finished session${s.finished === 1 ? "" : "s"}`}
+        >
+          ✓ {s.finished}
+        </span>
+      )}
+      {s.errored > 0 && (
+        <span
+          className="pill session-pill session-errored"
+          title={`${s.errored} errored session${s.errored === 1 ? "" : "s"}`}
+        >
+          ! {s.errored}
+        </span>
+      )}
+    </div>
+  );
+}
+
 const ALL_DEP_TYPES: BeadDepType[] = [
   "blocks",
   "parent-child",
   "related",
+  "relates-to",
   "tracks",
   "discovered-from",
 ];
@@ -418,12 +481,16 @@ function GraphEdgeToggles({
   isolate,
   onIsolateChange,
   hasSelection,
+  order,
+  onOrderChange,
 }: {
   hidden: ReadonlySet<BeadDepType>;
   onChange: (next: ReadonlySet<BeadDepType>) => void;
   isolate: boolean;
   onIsolateChange: (v: boolean) => void;
   hasSelection: boolean;
+  order: "default" | "hierarchy" | "blockers" | "hybrid";
+  onOrderChange: (v: "default" | "hierarchy" | "blockers" | "hybrid") => void;
 }) {
   const toggle = (t: BeadDepType) => {
     const next = new Set(hidden);
@@ -455,6 +522,21 @@ function GraphEdgeToggles({
           onChange={(e) => onIsolateChange(e.target.checked)}
         />
         isolate selection
+      </label>
+      <label style={{ fontSize: "0.8rem" }}>
+        order by:
+        <select
+          value={order}
+          onChange={(e) =>
+            onOrderChange(e.target.value as "default" | "hierarchy" | "blockers" | "hybrid")
+          }
+          title="Choose how to lay out the graph"
+        >
+          <option value="default">default (all edges)</option>
+          <option value="hierarchy">hierarchy (parent → child)</option>
+          <option value="blockers">blockers (LR, ready first)</option>
+          <option value="hybrid">hybrid (parent + blockers)</option>
+        </select>
       </label>
     </div>
   );

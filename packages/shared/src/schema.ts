@@ -60,6 +60,14 @@ export const TicketSessionSummary = z.object({
 });
 export type TicketSessionSummary = z.infer<typeof TicketSessionSummary>;
 
+export const BeadSessionSummary = z.object({
+  bead_id: z.string(),
+  running: z.number().int().nonnegative(),
+  finished: z.number().int().nonnegative(),
+  errored: z.number().int().nonnegative(),
+});
+export type BeadSessionSummary = z.infer<typeof BeadSessionSummary>;
+
 export const Column = z.object({
   id: z.string(),
   space_id: z.string(),

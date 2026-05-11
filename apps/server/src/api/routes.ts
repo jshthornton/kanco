@@ -33,6 +33,7 @@ import { schedulePush } from "../services/beads/auto-push.js";
 import {
   getSession,
   listBeadSessions,
+  listSpaceBeadSessionSummary,
   listSpaceSessionSummary,
   listTicketSessions,
   startBeadSession,
@@ -540,6 +541,10 @@ export function buildApi(deps: ApiDeps): Hono {
       return handleBeadsErr(c, err);
     }
   });
+
+  api.get("/spaces/:id/bead-sessions-summary", (c) =>
+    c.json(listSpaceBeadSessionSummary(deps.db, c.req.param("id"))),
+  );
 
   api.get("/spaces/:id/beads/:beadId/sessions", (c) =>
     c.json(listBeadSessions(deps.db, c.req.param("id"), c.req.param("beadId"))),

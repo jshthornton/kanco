@@ -52,6 +52,7 @@ export const BeadDepType = z.enum([
   "blocks",
   "tracks",
   "related",
+  "relates-to",
   "parent-child",
   "discovered-from",
 ]);

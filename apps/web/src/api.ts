@@ -5,6 +5,7 @@ import type {
   BeadGateAwaitType,
   BeadGraph,
   BeadIssueType,
+  BeadSessionSummary,
   BeadStatus,
   BeadSummary,
   Space,
@@ -140,7 +141,7 @@ export const api = {
     spaceId: string,
     beadId: string,
     depends_on: string,
-    type: "blocks" | "tracks" | "related" | "parent-child" | "discovered-from" = "blocks",
+    type: "blocks" | "tracks" | "related" | "relates-to" | "parent-child" | "discovered-from" = "blocks",
   ) =>
     http<{ ok: true }>(`/api/spaces/${spaceId}/beads/${beadId}/deps`, {
       method: "POST",
@@ -164,6 +165,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+  listBeadSessionSummary: (spaceId: string) =>
+    http<BeadSessionSummary[]>(`/api/spaces/${spaceId}/bead-sessions-summary`),
   listBeadSessions: (spaceId: string, beadId: string) =>
     http<AgentSession[]>(`/api/spaces/${spaceId}/beads/${beadId}/sessions`),
   startBeadSession: (

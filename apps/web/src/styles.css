@@ -985,3 +985,59 @@ textarea:focus {
   animation: inline-spin 0.7s linear infinite;
   vertical-align: middle;
 }
+
+/* session UI restored */
+.bead-card-sessions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.pill.status-running {
+  color: #8ad0ff;
+  border-color: #8ad0ff44;
+}
+.pill.status-starting {
+  color: #ffd58a;
+  border-color: #ffd58a44;
+}
+.pill.status-exited {
+  color: #8affb4;
+  border-color: #8affb444;
+}
+.pill.status-error {
+  color: var(--danger, #ff6d7b);
+  border-color: #ff6d7b44;
+}
+.session-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.session-row {
+  padding: 6px 0;
+  border-top: 1px solid var(--border, #2a2a2a);
+}
+.session-log {
+  background: var(--bg-mute, #111);
+  padding: 8px;
+  font-size: 12px;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  margin: 0;
+}
+.cmd-block {
+  flex: 1;
+  background: var(--bg-mute, #111);
+  padding: 6px 8px;
+  margin: 0;
+  font-size: 12px;
+  overflow: auto;
+  white-space: pre;
+}
+.row { display: flex; align-items: center; gap: 8px; }
+.stack { display: flex; flex-direction: column; gap: 8px; }
